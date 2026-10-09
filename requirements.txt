@@ -1,0 +1,6 @@
+pypdf
+reportlab
+ebooklib
+beautifulsoup4
+pymupdf
+anthropic
