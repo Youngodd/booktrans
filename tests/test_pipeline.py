@@ -85,3 +85,26 @@ def test_empty_translation_cover(tmp_path):
     from booktrans.writer import make_pdf
     make_pdf(["a", "b"], ["", ""], tmp_path / "o.pdf")
     assert pages(tmp_path / "o.pdf") == 3
+
+
+def test_scanned_page_english_is_erased(tmp_path):
+    """Scan = full-page image + invisible OCR text: the printed English must go."""
+    import fitz
+    from booktrans.layout import render_layout_page
+    src = fitz.open(); pg = src.new_page(width=300, height=300)
+    pg.draw_rect(pg.rect, color=None, fill=(0.85, 0.82, 0.7))
+    pg.insert_text((40, 100), "Printed English words", fontsize=16, color=(0, 0, 0))
+    pix = pg.get_pixmap(dpi=72)
+    scan = fitz.open(); sp = scan.new_page(width=300, height=300)
+    sp.insert_image(sp.rect, pixmap=pix)
+    sp.insert_text((40, 100), "Printed English words", fontsize=16, render_mode=3)
+    path = tmp_path / "scan.pdf"; scan.save(path)
+
+    with fitz.open(str(path)) as d:
+        blocks = extract_blocks(d[0])
+    assert blocks
+    out = render_layout_page(path, 0, blocks, [""] * len(blocks))  # draw no Chinese
+    region = fitz.Rect(blocks[0]["bbox"])
+    res = fitz.open("pdf", out)[0].get_pixmap(dpi=72, clip=region)
+    dark = [1 for i in range(0, len(res.samples), res.n) if res.samples[i] < 80]
+    assert not dark

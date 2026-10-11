@@ -56,6 +56,21 @@ def extract_blocks(page):
     return blocks
 
 
+def has_page_image(page):
+    """True if a single image covers most of the page (a scan)."""
+    area = page.rect.width * page.rect.height
+    return any((im["bbox"][2] - im["bbox"][0]) * (im["bbox"][3] - im["bbox"][1]) > 0.5 * area
+               for im in page.get_image_info())
+
+
+def paper_color(page, bbox):
+    """Median colour (0-1 RGB) inside bbox: the paper, since ink is the minority."""
+    import fitz
+    pix = page.get_pixmap(dpi=72, clip=fitz.Rect(bbox), colorspace=fitz.csRGB)
+    chans = [sorted(pix.samples[c::pix.n]) for c in range(3)]
+    return tuple(ch[len(ch) // 2] / 255 for ch in chans)
+
+
 def render_layout_page(book, page_no, blocks, zh):
     """One-page PDF (bytes): the original page with its text swapped for Chinese."""
     import fitz
@@ -64,10 +79,17 @@ def render_layout_page(book, page_no, blocks, zh):
         page = doc[0]
         fills = [d["rect"] for d in page.get_drawings()
                  if d.get("fill") and d["rect"].width > 20 and d["rect"].height > 20]
-        for b in blocks:
-            page.add_redact_annot(fitz.Rect(b["bbox"]))
-        page.apply_redactions(images=fitz.PDF_REDACT_IMAGE_NONE,
-                              graphics=fitz.PDF_REDACT_LINE_ART_NONE)
+        scanned = has_page_image(page)
+        paper = [paper_color(page, b["bbox"]) for b in blocks] if scanned else []
+        for k, b in enumerate(blocks):
+            rect = fitz.Rect(b["bbox"])
+            if scanned:  # the English is printed in the scan: paint it out
+                page.add_redact_annot(rect + (-1, -1, 1, 1), fill=paper[k])
+            else:
+                page.add_redact_annot(rect)
+        page.apply_redactions(
+            images=fitz.PDF_REDACT_IMAGE_PIXELS if scanned else fitz.PDF_REDACT_IMAGE_NONE,
+            graphics=fitz.PDF_REDACT_LINE_ART_NONE)
         for b, text in zip(blocks, zh):
             if not text:
                 continue

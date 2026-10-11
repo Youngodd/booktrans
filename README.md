@@ -8,7 +8,14 @@ page is followed by its Chinese translation on the next page.
 ```
 python3 -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
+```
+
+The default backend, `claude-cli`, uses your logged-in [Claude Code](https://claude.com/claude-code)
+CLI (`claude`), so no API key is needed. To use the Anthropic API instead:
+
+```
 export ANTHROPIC_API_KEY=sk-ant-...
+python -m booktrans mybook.epub --backend api
 ```
 
 ## Use
@@ -17,6 +24,17 @@ export ANTHROPIC_API_KEY=sk-ant-...
 python -m booktrans mybook.epub                 # -> mybook_bilingual.pdf
 python -m booktrans mybook.pdf --pages 1-10     # -> mybook_bilingual pages 1-10.pdf
 ```
+
+| Option | Meaning |
+| --- | --- |
+| `-o, --output` | output PDF path |
+| `--backend {claude-cli,api}` | LLM provider (default `claude-cli`) |
+| `--model` | model name (default: the backend's default) |
+| `--pages 1-20` | only this page range (a single number or `start-end`) |
+| `--redo 9-10` | re-translate these pages even if cached |
+| `--flat` | PDF input: plain-text Chinese pages instead of the original layout |
+| `--ocr` | OCR scanned pages (needs a vision-capable backend) |
+| `--ocr-backend`, `--ocr-model` | use a different backend / model for OCR |
 
 Progress is cached in `<output>.cache.json`, so an interrupted run resumes
 without re-paying for finished pages.
@@ -34,9 +52,7 @@ without their text.
 ### Scanned PDFs
 
 Pages with no text layer are detected automatically. To read them with
-Claude's vision, add `--ocr`. It works with both backends: the default
-`claude-cli` uses your Claude subscription login (no API key needed), and
-`--backend api` uses the API.
+Claude's vision, add `--ocr`. It works with both built-in backends.
 
 ```
 python -m booktrans scan.pdf --ocr --pages 1-5   # test first
@@ -46,6 +62,7 @@ OCR text is cached in `<output>.ocr.json` and is checked for each page, so
 re-runs don't pay for images again. Vision OCR can occasionally misread a poor
 scan, so spot-check a few pages. Use `--ocr-model` to pick a different model
 for OCR than for translation.
+Token usage of each run is appended to `<output>.usage.json`.
 
 ## Adding a backend
 
@@ -54,7 +71,31 @@ Backends live in `booktrans/backends/`. Subclass `LLMBackend` and implement
 `BACKENDS` in `backends/__init__.py`; it appears in `--backend` automatically.
 Vision is only needed for `--ocr`: set `supports_vision = True` and implement
 `ocr_image(jpeg, prompt)`. With a text-only backend, use `--ocr-backend` to
-OCR with a different provider than the one translating.
+OCR with a different provider than the one translating. Running `--ocr` with a
+backend that has no vision stops immediately with a clear message.
+
+## Project layout
+
+```
+booktrans/
+  cli.py          argument parsing; runs the steps below in order
+  readers.py      PDF / EPUB / TXT -> list of page texts, page ranges
+  ocr.py          OCR of scanned pages (via a vision backend)
+  translate.py    translation, retry/fallback, on-disk cache
+  layout.py       find text blocks on a PDF page, redraw it in Chinese
+  writer.py       assemble the bilingual PDF
+  usage.py        token usage tracking
+  prompts.py      prompts sent to the model
+  backends/       LLMBackend interface + claude-cli and api providers
+tests/            pytest suite (uses a fake backend, no API calls)
+```
+
+## Tests
+
+```
+pip install -r requirements-dev.txt
+python -m pytest tests
+```
 
 ## License
 
