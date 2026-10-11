@@ -14,6 +14,7 @@ import base64
 import io
 import json
 import re
+import subprocess
 import sys
 from pathlib import Path
 from xml.sax.saxutils import escape
@@ -116,6 +117,37 @@ def read_book(path):
     return readers[ext](path)
 
 
+# ---------- token usage ----------
+
+USAGE = {"calls": 0, "input_tokens": 0, "output_tokens": 0,
+         "cache_creation_input_tokens": 0, "cache_read_input_tokens": 0,
+         "cost_usd": 0.0}  # cost_usd is only reported by the claude-cli backend
+
+
+def record_usage(usage, cost=None):
+    """Add one call's usage (API object or CLI dict) to the running totals."""
+    get = usage.get if isinstance(usage, dict) else lambda k: getattr(usage, k, 0)
+    USAGE["calls"] += 1
+    for k in ("input_tokens", "output_tokens",
+              "cache_creation_input_tokens", "cache_read_input_tokens"):
+        USAGE[k] += get(k) or 0
+    USAGE["cost_usd"] += cost or 0.0
+
+
+def run_cli(cmd, **kw):
+    """Run `claude -p` with JSON output; record usage and return the text result."""
+    r = subprocess.run(cmd + ["--output-format", "json"],
+                                     capture_output=True, text=True, **kw)
+    try:
+        data = json.loads(r.stdout)
+    except ValueError:
+        data = None
+    if r.returncode != 0 or not data or data.get("is_error"):
+        sys.exit(f"claude CLI failed: {r.stderr.strip() or r.stdout.strip()}")
+    record_usage(data.get("usage") or {}, data.get("total_cost_usd"))
+    return data.get("result", "").strip()
+
+
 # ---------- OCR (scanned PDFs) ----------
 
 def ocr_page(client, model, path, i):
@@ -124,7 +156,6 @@ def ocr_page(client, model, path, i):
     with fitz.open(str(path)) as doc:
         img = doc[i].get_pixmap(dpi=OCR_DPI).tobytes("jpeg")
     if client is None:  # claude CLI: let its Read tool open the page image
-        import subprocess
         import tempfile
         with tempfile.TemporaryDirectory() as tmp:
             (Path(tmp) / "page.jpg").write_bytes(img)
@@ -133,11 +164,7 @@ def ocr_page(client, model, path, i):
                    "--no-session-persistence"]
             if model:
                 cmd += ["--model", model]
-            r = subprocess.run(cmd, cwd=tmp, stdin=subprocess.DEVNULL,
-                               capture_output=True, text=True)
-        if r.returncode != 0:
-            sys.exit(f"claude CLI failed: {r.stderr.strip() or r.stdout.strip()}")
-        return r.stdout.strip()
+            return run_cli(cmd, cwd=tmp, stdin=subprocess.DEVNULL)
     msg = client.messages.create(
         model=model,
         max_tokens=4096,
@@ -148,6 +175,7 @@ def ocr_page(client, model, path, i):
             {"type": "text", "text": OCR_PROMPT},
         ]}],
     )
+    record_usage(msg.usage)
     return "".join(b.text for b in msg.content if b.type == "text").strip()
 
 
@@ -157,21 +185,18 @@ def translate(client, model, text):
     if not text.strip():
         return ""
     if client is None:  # use the local `claude` CLI (Claude Pro/Max login)
-        import subprocess
         cmd = ["claude", "-p", "--tools", "", "--no-session-persistence",
                "--system-prompt", SYSTEM_PROMPT]
         if model:
             cmd += ["--model", model]
-        r = subprocess.run(cmd, input=text, capture_output=True, text=True)
-        if r.returncode != 0:
-            sys.exit(f"claude CLI failed: {r.stderr.strip() or r.stdout.strip()}")
-        return r.stdout.strip()
+        return run_cli(cmd, input=text)
     msg = client.messages.create(
         model=model,
         max_tokens=4096,
         system=SYSTEM_PROMPT,
         messages=[{"role": "user", "content": text}],
     )
+    record_usage(msg.usage)
     return "".join(b.text for b in msg.content if b.type == "text").strip()
 
 
@@ -352,6 +377,25 @@ def main():
     if original and original != args.book:
         original.unlink()
     print(f"Done: {out}")
+    report_usage(out)
+
+
+def report_usage(out):
+    """Print this run's token usage and save it next to the output."""
+    if not USAGE["calls"]:
+        print("Token usage: no API calls this run (everything was cached).")
+        return
+    print("Token usage (this run): %d calls, %d input, %d output, "
+          "%d cache-write, %d cache-read" % (
+              USAGE["calls"], USAGE["input_tokens"], USAGE["output_tokens"],
+              USAGE["cache_creation_input_tokens"], USAGE["cache_read_input_tokens"]))
+    if USAGE["cost_usd"]:
+        print("Reported cost (this run): $%.4f" % USAGE["cost_usd"])
+    path = out.with_suffix(".usage.json")
+    runs = json.loads(path.read_text()) if path.exists() else []
+    runs.append(dict(USAGE))
+    path.write_text(json.dumps(runs, indent=2))
+    print(f"Usage log: {path}")
 
 
 if __name__ == "__main__":
