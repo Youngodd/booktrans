@@ -21,6 +21,16 @@ python booktrans.py mybook.pdf --pages 1-10     # try a sample first
 Progress is cached in `<output>.cache.json`, so an interrupted run resumes
 without re-paying for finished pages.
 
+### Page layout (text PDFs)
+
+For PDFs with a text layer, the Chinese page is a copy of the original page with
+its English text replaced in place, so headings, bullets, side panels and images
+keep their positions. The text is translated block by block (cached under `L<page>`
+keys in the cache file). Use `--flat` for the older plain-text Chinese pages.
+Scanned pages (`--ocr`), EPUB and TXT always use plain-text pages. Known limits:
+inline highlights such as a boxed word, and dashed link underlines, stay in place
+without their text.
+
 ### Scanned PDFs
 
 Pages with no text layer are detected automatically. To read them with

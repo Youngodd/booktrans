@@ -204,9 +204,161 @@ def load_cache(path):
     return json.loads(path.read_text()) if path.exists() else {}
 
 
+# ---------- in-place layout (text PDFs) ----------
+
+LAYOUT_PROMPT = (
+    "You are a professional book translator. The user sends numbered text blocks "
+    "from one book page, each as `[n] text`. Translate every block into natural, "
+    "fluent Simplified Chinese. Reply with the same markers, one translated block "
+    "per marker, in the same order, and nothing else. Never merge, split, drop or "
+    "renumber blocks. Sentences may run across a page break: if the first block "
+    "continues a sentence from the previous page, or the last block is cut off and "
+    "continues on the next page, use the given context to translate it correctly, "
+    "but output only the part that appears in the numbered blocks. Never add words that are not in the block; a cut-off block stays cut off. Plain text only: no Markdown, no ** or * marks. Keep "
+    "proper names consistent, and leave code, URLs and numbers as they are."
+)
+
+
+def extract_blocks(page):
+    """Text blocks of a PDF page (pymupdf page): text, bbox and style.
+
+    A pymupdf block is split wherever the style changes between lines or a line
+    has a wide gap (labels like "Tip 1" beside a title), so each piece can be
+    redrawn in its own place.
+    """
+    blocks = []
+    for b in page.get_text("dict")["blocks"]:
+        if b["type"] != 0:
+            continue
+        groups, cur = [], None
+        for ln in b["lines"]:
+            spans = [s for s in ln["spans"] if s["text"].strip()]
+            if not spans:
+                continue
+            segs = [[spans[0]]]
+            for s in spans[1:]:
+                gap = s["bbox"][0] - segs[-1][-1]["bbox"][2]
+                if gap > 2.5 * s["size"]:
+                    segs.append([s])
+                else:
+                    segs[-1].append(s)
+            for seg in segs:
+                dom = max(seg, key=lambda s: len(s["text"].strip()))
+                # size and weight only: italic or link-coloured lines stay in their paragraph
+                style = (round(dom["size"] * 2), bool(dom["flags"] & 16))
+                text = "".join(s["text"] for s in seg).strip()
+                x0 = min(s["bbox"][0] for s in seg)
+                x1 = max(s["bbox"][2] for s in seg)
+                y0 = min(s["bbox"][1] for s in seg)
+                y1 = max(s["bbox"][3] for s in seg)
+                if cur and len(segs) == 1 and not cur["split"] and cur["style"] == style:
+                    t = cur["text"]  # re-join wrapped lines, undoing line-end hyphens
+                    cur["text"] = t[:-1] + text if t.endswith("-") and text[:1].islower() \
+                        else t + " " + text
+                    cur["bbox"] = [min(cur["bbox"][0], x0), cur["bbox"][1],
+                                   max(cur["bbox"][2], x1), y1]
+                    cur["lines"] += 1
+                    cur["x0s"].append(x0)
+                else:
+                    cur = {"text": text, "bbox": [x0, y0, x1, y1], "size": dom["size"],
+                           "color": "#%06x" % dom["color"], "lines": 1, "x0s": [x0],
+                           "bold": bool(dom["flags"] & 16) or "bold" in dom["font"].lower(),
+                           "style": style, "split": len(segs) > 1}
+                    groups.append(cur)
+        for g in groups:
+            if re.search(r"[A-Za-z]{2}", g["text"]):  # skip page numbers, symbols
+                del g["style"], g["split"]
+                blocks.append(g)
+    return blocks
+
+
+def translate_blocks(client, model, blocks, ctx=("", "")):
+    """Translate a page's blocks in one request; falls back to one by one."""
+    src = "\n".join("[%d] %s" % (n, b["text"]) for n, b in enumerate(blocks, 1))
+    before, after = ctx
+    if before:
+        src = "Context, end of the previous page (do not translate):\n%s\n\nBlocks to translate:\n%s" % (before, src)
+    if after:
+        src += "\n\nContext, start of the next page (do not translate):\n" + after
+    for _ in range(2):
+        if client is None:
+            cmd = ["claude", "-p", "--tools", "", "--no-session-persistence",
+                   "--system-prompt", LAYOUT_PROMPT]
+            if model:
+                cmd += ["--model", model]
+            out = run_cli(cmd, input=src)
+        else:
+            msg = client.messages.create(
+                model=model, max_tokens=8192, system=LAYOUT_PROMPT,
+                messages=[{"role": "user", "content": src}])
+            record_usage(msg.usage)
+            out = "".join(b.text for b in msg.content if b.type == "text")
+        parts = re.split(r"(?m)^\[(\d+)\][ \t]*", out)  # ['', '1', 'txt', '2', ...]
+        got = {int(parts[k]): parts[k + 1].strip() for k in range(1, len(parts) - 1, 2)}
+        if sorted(got) == list(range(1, len(blocks) + 1)):
+            return [got[n].replace("**", "") for n in range(1, len(blocks) + 1)]
+    return [translate(client, model, b["text"]).replace("**", "") for b in blocks]
+
+
+def render_layout_page(book, page_no, blocks, zh):
+    """One-page PDF (bytes): the original page with its text swapped for Chinese."""
+    import fitz
+    with fitz.open(str(book)) as doc:
+        doc.select([page_no])
+        page = doc[0]
+        fills = [d["rect"] for d in page.get_drawings()
+                 if d.get("fill") and d["rect"].width > 20 and d["rect"].height > 20]
+        for b in blocks:
+            page.add_redact_annot(fitz.Rect(b["bbox"]))
+        page.apply_redactions(images=fitz.PDF_REDACT_IMAGE_NONE,
+                              graphics=fitz.PDF_REDACT_LINE_ART_NONE)
+        for b, text in zip(blocks, zh):
+            if not text:
+                continue
+            rect = fitz.Rect(b["bbox"])
+            # room to grow downward (one extra line, or up to the next block)
+            below = [o["bbox"][1] for o in blocks if o is not b
+                     and o["bbox"][1] >= b["bbox"][3] - 1
+                     and o["bbox"][0] < b["bbox"][2] and o["bbox"][2] > b["bbox"][0]]
+            limit = min(below + [page.rect.y1 - 20]) - 1
+            if len(b["x0s"]) > 2 and b["x0s"][1] - min(b["x0s"]) > 3 * b["size"]:
+                rect.x0 = b["x0s"][1]  # text wrapped around a floated box: keep clear of it
+            rect.y1 = max(rect.y1, min(rect.y1 + b["size"] * 1.4, limit),
+                          rect.y0 + b["size"] * 1.6)
+            center = False
+            if b["lines"] == 1:  # Chinese glyphs are wide: let short lines grow rightwards
+                right = [o["bbox"][0] for o in blocks if o is not b
+                         and o["bbox"][0] >= b["bbox"][2]
+                         and o["bbox"][1] < b["bbox"][3] and o["bbox"][3] > b["bbox"][1]]
+                edge = [f.x1 - 4 for f in fills if f.contains(rect)]  # stay inside its panel
+                rect.x1 = max(rect.x1, min(rect.x1 + rect.width * 0.5,
+                                           min(right + edge + [page.rect.x1 - 30]) - 2))
+            if b["lines"] == 1 and b["bold"]:  # a title centred inside its box/panel stays centred
+                for f in fills:
+                    if f.contains(rect) and abs((f.x0 + f.x1) / 2 - (rect.x0 + rect.x1) / 2) < 3 \
+                            and rect.width < f.width * 0.9:
+                        center = True
+                        break
+            html = escape(text).replace("\n", "<br>")
+            size = b["size"]
+            while True:  # largest size (down to 60%) at which the text fits the box
+                css = ("* {font-family: sans-serif; font-size: %.1fpt; color: %s; "
+                       "font-weight: %s; text-align: %s; margin: 0; line-height: 1.3;}"
+                       % (size, b["color"], "bold" if b["bold"] else "normal",
+                          "center" if center else "left"))
+                spare, _ = page.insert_htmlbox(rect, html, css=css, scale_low=1)
+                if spare >= 0:
+                    break
+                if size <= b["size"] * 0.6:  # give up: shrink-to-fit, any size
+                    page.insert_htmlbox(rect, html, css=css, scale_low=0)
+                    break
+                size -= 0.5
+        return doc.tobytes(garbage=3, deflate=True)
+
+
 # ---------- writing ----------
 
-def make_pdf(pages, translations, out_path, original_pdf=None):
+def make_pdf(pages, translations, out_path, original_pdf=None, zh_pages=None):
     from reportlab.lib.pagesizes import A4
     from reportlab.lib.styles import ParagraphStyle
     from reportlab.lib.units import mm
@@ -281,6 +433,10 @@ def make_pdf(pages, translations, out_path, original_pdf=None):
         else:
             for p in render(text, "Times-Roman", 1.4, f"English — page {i + 1}").pages:
                 writer.add_page(p)
+        if zh_pages and i in zh_pages:
+            for p in PdfReader(io.BytesIO(zh_pages[i])).pages:
+                writer.add_page(p)
+            continue
         if i == 0 and not translations[i]:
             # Viewers show the cover alone; no filler page, so later
             # original/translation pairs line up as two-page spreads.
@@ -313,6 +469,9 @@ def main():
     ap.add_argument("--model", help="model name (default: CLI default / %s for api)" % DEFAULT_MODEL)
     ap.add_argument("--pages", help="page range to translate, e.g. 1-20")
     ap.add_argument("--redo", help="re-translate these pages even if cached, e.g. 9-10")
+    ap.add_argument("--flat", action="store_true",
+                    help="PDF input: typeset the translation as plain text pages "
+                         "instead of copying each page's layout")
     ap.add_argument("--ocr", action="store_true",
                     help="OCR scanned PDF pages (no text layer) with Claude vision "
                          "(works with both backends)")
@@ -350,10 +509,35 @@ def main():
                 ocr_path.write_text(json.dumps(ocr_cache, ensure_ascii=False))  # resumable
             pages[n] = ocr_cache[key]
 
+    # text PDFs: translate block by block and redraw the original page in Chinese
+    layout, ctx = {}, {}
+    if args.book.suffix.lower() == ".pdf" and not args.flat:
+        import fitz
+        with fitz.open(str(args.book)) as doc:
+            for n, i in enumerate(idx):
+                if n not in scanned:
+                    blocks = extract_blocks(doc[i])
+                    if blocks:
+                        layout[n] = blocks
+                        # neighbouring pages, so sentences cut by a page break translate well
+                        prev = extract_blocks(doc[i - 1]) if i > 0 else []
+                        nxt = extract_blocks(doc[i + 1]) if i + 1 < len(doc) else []
+                        ctx[n] = (" ".join(b["text"] for b in prev[-3:])[-600:],
+                                  " ".join(b["text"] for b in nxt[:2])[:400])
+
     redo = set(parse_range(args.redo, len(read_book(args.book)))) if args.redo else set()
     translations = []
     for n, (i, text) in enumerate(zip(idx, pages), 1):
         key = str(i)
+        if n - 1 in layout:
+            key = "L" + key
+            if key not in cache or i in redo or len(cache[key]) != len(layout[n - 1]):
+                print(f"Translating page {i + 1} ({n}/{len(pages)})...", flush=True)
+                cache[key] = translate_blocks(client, args.model, layout[n - 1],
+                                                 ctx[n - 1])
+                cache_path.write_text(json.dumps(cache, ensure_ascii=False))
+            translations.append("")
+            continue
         if key not in cache or i in redo:
             print(f"Translating page {i + 1} ({n}/{len(pages)})...", flush=True)
             cache[key] = translate(client, args.model, text)
@@ -373,7 +557,10 @@ def main():
                 w.write(f)
         else:
             original = args.book
-    make_pdf(pages, translations, out, original)
+    zh_pages = {n: render_layout_page(args.book, idx[n], blocks,
+                                      cache["L%d" % idx[n]])
+                for n, blocks in layout.items()}
+    make_pdf(pages, translations, out, original, zh_pages)
     if original and original != args.book:
         original.unlink()
     print(f"Done: {out}")
