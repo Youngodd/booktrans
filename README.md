@@ -14,8 +14,8 @@ export ANTHROPIC_API_KEY=sk-ant-...
 ## Use
 
 ```
-python booktrans.py mybook.epub                 # -> mybook_bilingual.pdf
-python booktrans.py mybook.pdf --pages 1-10     # -> mybook_bilingual pages 1-10.pdf
+python -m booktrans mybook.epub                 # -> mybook_bilingual.pdf
+python -m booktrans mybook.pdf --pages 1-10     # -> mybook_bilingual pages 1-10.pdf
 ```
 
 Progress is cached in `<output>.cache.json`, so an interrupted run resumes
@@ -39,13 +39,22 @@ Claude's vision, add `--ocr`. It works with both backends: the default
 `--backend api` uses the API.
 
 ```
-python booktrans.py scan.pdf --ocr --pages 1-5   # test first
+python -m booktrans scan.pdf --ocr --pages 1-5   # test first
 ```
 
 OCR text is cached in `<output>.ocr.json` and is checked for each page, so
 re-runs don't pay for images again. Vision OCR can occasionally misread a poor
 scan, so spot-check a few pages. Use `--ocr-model` to pick a different model
 for OCR than for translation.
+
+## Adding a backend
+
+Backends live in `booktrans/backends/`. Subclass `LLMBackend` and implement
+`complete(system, user, max_tokens)` (text in, text out), then register it in
+`BACKENDS` in `backends/__init__.py`; it appears in `--backend` automatically.
+Vision is only needed for `--ocr`: set `supports_vision = True` and implement
+`ocr_image(jpeg, prompt)`. With a text-only backend, use `--ocr-backend` to
+OCR with a different provider than the one translating.
 
 ## License
 

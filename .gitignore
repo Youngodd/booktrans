@@ -5,3 +5,6 @@
 *.cache.json
 .env
 *.ocr.json
+
+__pycache__/
+.pytest_cache/
