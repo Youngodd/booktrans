@@ -481,7 +481,8 @@ def main():
     pages = read_book(args.book)
     idx = parse_range(args.pages, len(pages))
     pages = [pages[i] for i in idx]
-    out = args.output or args.book.with_name(args.book.stem + "_bilingual.pdf")
+    suffix = " pages " + args.pages.replace(" ", "") if args.pages else ""
+    out = args.output or args.book.with_name(f"{args.book.stem}_bilingual{suffix}.pdf")
     cache_path = out.with_suffix(".cache.json")
     cache = load_cache(cache_path)
 

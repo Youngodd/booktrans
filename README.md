@@ -15,7 +15,7 @@ export ANTHROPIC_API_KEY=sk-ant-...
 
 ```
 python booktrans.py mybook.epub                 # -> mybook_bilingual.pdf
-python booktrans.py mybook.pdf --pages 1-10     # try a sample first
+python booktrans.py mybook.pdf --pages 1-10     # -> mybook_bilingual pages 1-10.pdf
 ```
 
 Progress is cached in `<output>.cache.json`, so an interrupted run resumes
