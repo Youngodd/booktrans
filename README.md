@@ -10,6 +10,9 @@ python3 -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
 ```
 
+The requirements include `opencv-python-headless` (used to clean scanned pages;
+no model or training involved).
+
 The default backend, `claude-cli`, uses your logged-in [Claude Code](https://claude.com/claude-code)
 CLI (`claude`), so no API key is needed. To use the Anthropic API instead:
 
@@ -45,14 +48,32 @@ For PDFs with a text layer, the Chinese page is a copy of the original page with
 its English text replaced in place, so headings, bullets, side panels and images
 keep their positions. The text is translated block by block (cached under `L<page>`
 keys in the cache file). Use `--flat` for the older plain-text Chinese pages.
-Scanned pages (`--ocr`), EPUB and TXT always use plain-text pages. Known limits:
-inline highlights such as a boxed word, and dashed link underlines, stay in place
-without their text.
+EPUB and TXT always use plain-text pages. Known limits: inline highlights such
+as a boxed word, and dashed link underlines, stay in place without their text.
 
-### Scanned PDFs
+### Scanned pages with a text layer
+
+Many scanned books carry a (rough) OCR text layer. Those pages are rebuilt on a
+clean white page instead of being patched:
+
+- **Paragraphs** are merged from lines by geometry (first-line indent, short last
+  line, vertical gap, size jump). Each Chinese paragraph starts at the same height
+  as its English paragraph; its bottom is free. One size factor per page keeps
+  body, heading and note sizes consistent.
+- **Tables** (3+ rows with 2+ aligned columns) are translated cell by cell and
+  drawn in their original columns; wrapped cell text stays in its cell.
+- **Figures, symbols and rules** are kept: OpenCV flattens the scan's paper tone
+  and keeps only the dark ink (`figures.py`), with the English text erased and the
+  Chinese drawn on top. Blocks the model answers `~` for (symbols, OCR noise) are
+  left as they are.
+- Limits: photographic plates are thresholded to line art; layouts that are not
+  paragraphs or aligned tables fall back to paragraph flow.
+
+### Scanned PDFs without a text layer
 
 Pages with no text layer are detected automatically. To read them with
-Claude's vision, add `--ocr`. It works with both built-in backends.
+Claude's vision, add `--ocr`. It works with both built-in backends. These pages
+use plain-text Chinese pages.
 
 ```
 python -m booktrans scan.pdf --ocr --pages 1-5   # test first
@@ -82,7 +103,8 @@ booktrans/
   readers.py      PDF / EPUB / TXT -> list of page texts, page ranges
   ocr.py          OCR of scanned pages (via a vision backend)
   translate.py    translation, retry/fallback, on-disk cache
-  layout.py       find text blocks on a PDF page, redraw it in Chinese
+  layout.py       find text blocks / paragraphs / table cells on a PDF page, redraw it in Chinese
+  figures.py      clean ink layer of a scan (OpenCV): keeps lines, curves and symbols
   writer.py       assemble the bilingual PDF
   usage.py        token usage tracking
   prompts.py      prompts sent to the model

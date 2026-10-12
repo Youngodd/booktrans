@@ -4,3 +4,4 @@ ebooklib
 beautifulsoup4
 pymupdf
 anthropic
+opencv-python-headless

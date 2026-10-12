@@ -26,6 +26,6 @@ LAYOUT_PROMPT = (
     "renumber blocks. Sentences may run across a page break: if the first block "
     "continues a sentence from the previous page, or the last block is cut off and "
     "continues on the next page, use the given context to translate it correctly, "
-    "but output only the part that appears in the numbered blocks. Never add words that are not in the block; a cut-off block stays cut off. Plain text only: no Markdown, no ** or * marks. Keep "
+    "but output only the part that appears in the numbered blocks. Never add words that are not in the block; a cut-off block stays cut off. If a block is only a symbol, drawing or OCR noise (for example '©', 'QO', a stray letter), reply `[n] ~` for it. Table cells and figure labels are short: translate them tersely, without adding words. Plain text only: no Markdown, no ** or * marks. Keep "
     "proper names consistent, and leave code, URLs and numbers as they are."
 )
