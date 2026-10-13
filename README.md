@@ -106,6 +106,29 @@ translate_book("book.pdf", "out.pdf", translator, pages="1-20",
 limit) are retried with a growing delay and then raise `BackendError`; progress
 is cached, so calling again resumes the job.
 
+## Web service
+
+A small web app lets others use the translator in a browser, with their own
+Anthropic API key (the key is used for that one job, held in memory, and never
+written to disk or logs).
+
+```
+pip install -r requirements-web.txt
+python -m booktrans.web                 # http://127.0.0.1:8000
+```
+
+Upload a book, see the page count and an estimated cost, optionally preview 3
+pages, then translate; the page shows progress and offers the PDF to download.
+Jobs run in worker processes, survive a closed tab (the page resumes from
+`localStorage`), and are deleted after 24 hours. Settings come from environment
+variables: `BOOKTRANS_DATA` (data folder, default `data`), `BOOKTRANS_WORKERS`
+(parallel jobs, default 2), `HOST`, `PORT`. Limits (upload size, pages per job,
+retention) are arguments of `create_app` in `booktrans/web/app.py`.
+
+API: `POST /api/jobs` (upload) → `POST /api/jobs/{id}/start` (`api_key`, `pages`,
+`preview`, `ocr`) → `GET /api/jobs/{id}` (state, stage, done/total) →
+`GET /api/jobs/{id}/download`; `DELETE /api/jobs/{id}` removes the files.
+
 ## Adding a backend
 
 Backends live in `booktrans/backends/`. Subclass `LLMBackend` and implement
@@ -128,6 +151,7 @@ booktrans/
   layout.py       find text blocks / paragraphs / table cells on a PDF page, redraw it in Chinese
   figures.py      clean ink layer of a scan (OpenCV): keeps lines, curves and symbols
   writer.py       assemble the bilingual PDF
+  web/            web service: app.py (API), jobs.py (job storage, worker), static/index.html
   usage.py        token usage tracking
   prompts.py      prompts sent to the model
   backends/       LLMBackend interface + claude-cli and api providers

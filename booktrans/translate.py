@@ -3,7 +3,7 @@ import json
 import re
 import time
 
-from .backends.base import BackendError
+from .backends.base import AuthError, BackendError
 from .prompts import LAYOUT_PROMPT, SYSTEM_PROMPT
 
 RETRY_DELAYS = (5, 20, 60)  # seconds to wait before each retry of a failed call
@@ -14,6 +14,8 @@ def complete(backend, system, text, max_tokens):
     for delay in (*RETRY_DELAYS, None):
         try:
             return backend.complete(system, text, max_tokens=max_tokens)
+        except AuthError:
+            raise
         except BackendError:
             if delay is None:
                 raise

@@ -53,6 +53,14 @@ def make_progress():
 
 def main():
     args = parse_args()
+    try:
+        run(args)
+    except (ValueError, BackendError) as e:
+        sys.exit(f"{e}\nProgress is saved; run the same command again to resume."
+                 if isinstance(e, BackendError) else str(e))
+
+
+def run(args):
     usage = Usage()
     is_pdf = args.book.suffix.lower() == ".pdf"
 
@@ -75,10 +83,7 @@ def main():
               "(scanned?). Re-run with --ocr to read them.", file=sys.stderr)
 
     out = args.output or default_output(args.book, args.pages)
-    try:
-        translate_book(args.book, out, translator, ocr_backend=ocr_backend, pages=args.pages,
-                       redo=args.redo, flat=args.flat, progress=make_progress())
-    except BackendError as e:
-        sys.exit(f"{e}\nProgress is saved; run the same command again to resume.")
+    translate_book(args.book, out, translator, ocr_backend=ocr_backend, pages=args.pages,
+                   redo=args.redo, flat=args.flat, progress=make_progress())
     print(f"Done: {out}")
     usage.report(out)

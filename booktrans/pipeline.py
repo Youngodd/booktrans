@@ -33,9 +33,18 @@ def build_source_pdf(book, idx, out):
     return path
 
 
+def total_pages(book):
+    """Pages in the book (quick for PDFs, which don't need their text read)."""
+    book = Path(book)
+    if book.suffix.lower() == ".pdf":
+        from pypdf import PdfReader
+        return len(PdfReader(str(book)).pages)
+    return len(read_book(book))
+
+
 def count_pages(book, pages=None):
     """Number of pages a job would translate (for a cost estimate before it starts)."""
-    return len(parse_range(pages, len(read_book(book))))
+    return len(parse_range(pages, total_pages(book)))
 
 
 def translate_book(book, out, translator, *, ocr_backend=None, pages=None, redo=None,

@@ -13,11 +13,11 @@ def test_parse_range_clamps():
     assert parse_range("0-99", 3) == [0, 1, 2]
 
 def test_parse_range_reversed_is_error():
-    with pytest.raises(SystemExit):
+    with pytest.raises(ValueError):
         parse_range("5-3", 10)
 
 def test_parse_range_garbage_gives_clean_error():
-    with pytest.raises(SystemExit):
+    with pytest.raises(ValueError):
         parse_range("abc", 10)
 
 def test_reflow_joins_prose_keeps_lists():
@@ -33,5 +33,5 @@ def test_read_txt(tmp_path):
     assert read_txt(f) == ["one\n\ntwo"]
 
 def test_unsupported_ext(tmp_path):
-    with pytest.raises(SystemExit):
+    with pytest.raises(ValueError):
         read_book(tmp_path / "a.docx")

@@ -1,7 +1,7 @@
 """Backend for the Anthropic API (needs ANTHROPIC_API_KEY)."""
 import base64
 
-from .base import BackendError, LLMBackend
+from .base import AuthError, BackendError, LLMBackend
 
 DEFAULT_MODEL = "claude-sonnet-5-5"
 
@@ -19,6 +19,9 @@ class AnthropicBackend(LLMBackend):
         try:
             msg = self.client.messages.create(model=self.model, max_tokens=max_tokens,
                                               messages=messages, **kw)
+        except (anthropic.AuthenticationError, anthropic.PermissionDeniedError) as e:
+            raise AuthError("The API key was rejected. Check that it is correct, "
+                            "has credit and may use this model.") from e
         except anthropic.APIError as e:
             raise BackendError(f"Anthropic API error: {e}") from e
         self.usage.record(msg.usage)

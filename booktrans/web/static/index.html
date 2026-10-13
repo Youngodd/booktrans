@@ -1,0 +1,237 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Book Translator 双语书翻译</title>
+<style>
+  :root {
+    --bg: #f6f5f2; --card: #ffffff; --ink: #1d1d1b; --muted: #6b6a66; --line: #e2e0da;
+    --accent: #1f5f8b; --accent-ink: #ffffff; --ok: #2e7d4f; --bad: #b3261e; --track: #e9e7e1;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #151515; --card: #1f1f1e; --ink: #ececea; --muted: #a09f9a; --line: #333331;
+      --accent: #6fb1dc; --accent-ink: #10202b; --ok: #6cc28c; --bad: #f0827a; --track: #2c2c2a;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink);
+         font: 16px/1.55 -apple-system, "PingFang SC", "Segoe UI", "Noto Sans SC", sans-serif; }
+  main { max-width: 640px; margin: 0 auto; padding: 32px 16px 64px; }
+  h1 { font-size: 1.6rem; margin: 0 0 4px; }
+  .sub { color: var(--muted); margin: 0 0 24px; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 12px;
+          padding: 20px; margin-bottom: 16px; }
+  .card h2 { font-size: 1rem; margin: 0 0 12px; }
+  label { display: block; font-size: .9rem; margin: 12px 0 4px; }
+  input[type=text], input[type=password], input[type=file] {
+    width: 100%; padding: 10px 12px; border: 1px solid var(--line); border-radius: 8px;
+    background: var(--bg); color: var(--ink); font: inherit; }
+  .row { display: flex; gap: 12px; flex-wrap: wrap; }
+  .row > * { flex: 1 1 200px; }
+  .check { display: flex; gap: 8px; align-items: flex-start; font-size: .9rem; margin: 12px 0; }
+  .check input { margin-top: 4px; }
+  .hint { color: var(--muted); font-size: .85rem; margin: 4px 0 0; }
+  button { font: inherit; padding: 10px 16px; border-radius: 8px; border: 1px solid var(--accent);
+           background: var(--accent); color: var(--accent-ink); cursor: pointer; }
+  button.secondary { background: transparent; color: var(--accent); }
+  button:disabled { opacity: .5; cursor: not-allowed; }
+  .actions { display: flex; gap: 12px; flex-wrap: wrap; margin-top: 16px; }
+  .bar { height: 10px; background: var(--track); border-radius: 5px; overflow: hidden; margin: 12px 0 8px; }
+  .bar > div { height: 100%; width: 0; background: var(--accent); transition: width .3s; }
+  .msg { margin: 8px 0 0; }
+  .err { color: var(--bad); }
+  .done { color: var(--ok); }
+  .hidden { display: none; }
+  a.btn { display: inline-block; padding: 10px 16px; border-radius: 8px; background: var(--ok);
+          color: var(--bg); text-decoration: none; }
+  footer { color: var(--muted); font-size: .85rem; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Book Translator · 双语书翻译</h1>
+  <p class="sub">Upload an English book; get a PDF where every English page is followed by its Chinese translation.<br>
+     上传英文书，得到一份双语 PDF：每一页英文后面紧跟对应的中文页。</p>
+
+  <section class="card" id="step-upload">
+    <h2>1 · 上传 Upload</h2>
+    <input type="file" id="file" accept=".pdf,.epub,.txt">
+    <p class="hint">PDF / EPUB / TXT, ≤ <span id="maxmb">60</span> MB</p>
+    <div class="bar hidden" id="upbar"><div></div></div>
+    <p class="msg" id="upmsg"></p>
+  </section>
+
+  <section class="card hidden" id="step-setup">
+    <h2>2 · 设置 Settings</h2>
+    <p id="bookinfo"></p>
+    <label for="key">Anthropic API key</label>
+    <input type="password" id="key" autocomplete="off" spellcheck="false" placeholder="sk-ant-...">
+    <p class="hint">Used only for this job, kept in memory, never saved or logged.
+       仅用于本次任务，只保存在内存中，不会存储或记录。</p>
+    <div class="row">
+      <div>
+        <label for="pages">页码范围 Page range (可留空 optional)</label>
+        <input type="text" id="pages" placeholder="例如 1-20 e.g. 1-20">
+      </div>
+    </div>
+    <label class="check"><input type="checkbox" id="ocr">
+      <span>扫描页没有文字层时用视觉模型识别 (OCR, 会多花一些费用) · Read pages that have no text layer with vision OCR (extra cost)</span></label>
+    <p class="hint" id="estimate"></p>
+    <label class="check"><input type="checkbox" id="rights">
+      <span>我确认我有权翻译这本书，并对其使用负责。 · I confirm I have the right to translate this book and take responsibility for it.</span></label>
+    <div class="actions">
+      <button class="secondary" id="btn-preview">试译前 3 页 Preview 3 pages</button>
+      <button id="btn-start">开始翻译 Translate</button>
+    </div>
+    <p class="msg err" id="startmsg"></p>
+  </section>
+
+  <section class="card hidden" id="step-run">
+    <h2>3 · 进度 Progress</h2>
+    <div class="bar"><div id="bar"></div></div>
+    <p class="msg" id="stage"></p>
+    <p class="msg err" id="runerr"></p>
+    <div class="actions">
+      <a class="btn hidden" id="download" href="#">下载 PDF Download</a>
+      <button class="secondary hidden" id="btn-again">再来一次 / 继续 Run again</button>
+      <button class="secondary hidden" id="btn-delete">删除我的文件 Delete my files</button>
+    </div>
+  </section>
+
+  <footer>
+    Files are deleted automatically after 24 hours. Translation quality can vary; check important pages.<br>
+    文件会在 24 小时后自动删除。翻译质量可能有差异，重要内容请自行核对。
+  </footer>
+</main>
+
+<script>
+const $ = (id) => document.getElementById(id);
+const STAGES = {
+  scan: "分析版面 Analysing layout", ocr: "识别扫描页 Reading scanned pages",
+  translate: "翻译 Translating", render: "生成页面 Building pages",
+  "": "排队中 Waiting for a free worker",
+};
+let job = null, timer = null;
+
+function save(id) { try { localStorage.setItem("job", id || ""); } catch (e) {} }
+function saved() { try { return localStorage.getItem("job") || ""; } catch (e) { return ""; } }
+function show(id, on) { $(id).classList.toggle("hidden", !on); }
+
+async function api(path, opts) {
+  const r = await fetch(path, opts);
+  const body = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(body.detail || ("Error " + r.status));
+  return body;
+}
+
+function setBook(j) {
+  job = j;
+  $("bookinfo").textContent = j.filename + " — " + j.pages_total + " 页 pages";
+  updateEstimate();
+  show("step-setup", true);
+}
+
+function pageCount() {
+  const total = job.pages_total, s = $("pages").value.trim();
+  if (!s) return total;
+  const m = s.match(/^(\d+)(?:\s*-\s*(\d+))?$/);
+  if (!m) return total;
+  const a = Math.max(+m[1], 1), b = Math.min(+(m[2] || m[1]), total);
+  return Math.max(b - a + 1, 0);
+}
+
+function updateEstimate() {
+  if (!job) return;
+  const n = pageCount(), c = n * job.est_cost_per_page;
+  $("estimate").textContent = n + " 页 pages ≈ US$" + c.toFixed(2) +
+    " (按你的 API key 计费 billed to your key; 估计值 estimate)";
+}
+
+$("pages").addEventListener("input", updateEstimate);
+
+$("file").addEventListener("change", () => {
+  const f = $("file").files[0];
+  if (!f) return;
+  $("upmsg").textContent = ""; $("upmsg").className = "msg";
+  show("upbar", true); $("upbar").firstElementChild.style.width = "0";
+  const xhr = new XMLHttpRequest();
+  xhr.open("POST", "/api/jobs");
+  xhr.upload.onprogress = (e) => {
+    if (e.lengthComputable) $("upbar").firstElementChild.style.width = (100 * e.loaded / e.total) + "%";
+  };
+  xhr.onload = () => {
+    show("upbar", false);
+    let body = {}; try { body = JSON.parse(xhr.responseText); } catch (e) {}
+    if (xhr.status !== 200) { $("upmsg").className = "msg err"; $("upmsg").textContent = body.detail || "上传失败 Upload failed"; return; }
+    save(body.id); show("step-run", false); setBook(body);
+  };
+  xhr.onerror = () => { show("upbar", false); $("upmsg").className = "msg err"; $("upmsg").textContent = "网络错误 Network error"; };
+  const fd = new FormData(); fd.append("file", f); xhr.send(fd);
+});
+
+async function start(preview) {
+  $("startmsg").textContent = "";
+  if (!$("rights").checked) { $("startmsg").textContent = "请先勾选确认 Please tick the confirmation box."; return; }
+  try {
+    const j = await api("/api/jobs/" + job.id + "/start", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ api_key: $("key").value, pages: $("pages").value, preview: preview, ocr: $("ocr").checked }),
+    });
+    $("key").value = "";  // the server has it; do not leave it in the page
+    render(j); poll();
+  } catch (e) { $("startmsg").textContent = e.message; }
+}
+$("btn-start").onclick = () => start(false);
+$("btn-preview").onclick = () => start(true);
+
+function render(j) {
+  job = Object.assign(job || {}, j);
+  show("step-run", true);
+  const active = j.state === "queued" || j.state === "running";
+  const pct = j.total ? 100 * j.done / j.total : 0;
+  $("bar").style.width = (j.state === "done" ? 100 : pct) + "%";
+  $("runerr").textContent = j.state === "failed" ? j.error : "";
+  const label = STAGES[j.stage] || j.stage;
+  $("stage").className = "msg" + (j.state === "done" ? " done" : "");
+  $("stage").textContent = j.state === "done"
+    ? (j.preview ? "试译完成（前几页） Preview ready" : "完成 Done")
+    : j.state === "failed" ? "失败 Failed — 进度已保存，可再试一次 progress is saved, you can run again"
+    : label + (j.total ? " " + j.done + "/" + j.total : "");
+  show("download", j.state === "done");
+  if (j.state === "done") $("download").href = "/api/jobs/" + j.id + "/download";
+  show("btn-again", !active); show("btn-delete", !active);
+  show("step-setup", !active);
+  if (!active && job.pages_total) updateEstimate();
+}
+
+function poll() {
+  clearInterval(timer);
+  timer = setInterval(async () => {
+    try {
+      const j = await api("/api/jobs/" + job.id);
+      render(j);
+      if (j.state !== "queued" && j.state !== "running") clearInterval(timer);
+    } catch (e) { clearInterval(timer); $("runerr").textContent = e.message; }
+  }, 2000);
+}
+
+$("btn-again").onclick = () => { show("step-setup", true); $("startmsg").textContent = ""; };
+$("btn-delete").onclick = async () => {
+  try { await api("/api/jobs/" + job.id, { method: "DELETE" }); } catch (e) {}
+  save(""); job = null; show("step-setup", false); show("step-run", false); $("file").value = "";
+};
+
+(async function resume() {
+  const id = saved();
+  if (!id) return;
+  try {
+    const j = await api("/api/jobs/" + id);
+    setBook(j);
+    if (j.state !== "uploaded") { render(j); if (j.state === "queued" || j.state === "running") poll(); }
+  } catch (e) { save(""); }
+})();
+</script>
+</body>
+</html>

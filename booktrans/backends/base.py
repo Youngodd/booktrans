@@ -2,7 +2,11 @@
 
 
 class BackendError(RuntimeError):
-    """A model call failed (network, auth, quota...). Calls may be retried."""
+    """A model call failed (network, quota...). Calls may be retried."""
+
+
+class AuthError(BackendError):
+    """The API key was rejected. Retrying cannot help."""
 
 
 class LLMBackend:

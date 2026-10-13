@@ -1,6 +1,5 @@
 """Read a book into a list of page texts."""
 import re
-import sys
 from pathlib import Path
 
 CHARS_PER_PAGE = 1800  # for EPUB/TXT, which have no fixed pages
@@ -81,7 +80,7 @@ def read_book(path):
     ext = Path(path).suffix.lower()
     readers = {".pdf": read_pdf, ".epub": read_epub, ".txt": read_txt}
     if ext not in readers:
-        sys.exit(f"Unsupported file type: {ext} (use .pdf, .epub or .txt)")
+        raise ValueError(f"Unsupported file type: {ext} (use .pdf, .epub or .txt)")
     return readers[ext](path)
 
 
@@ -92,7 +91,7 @@ def parse_range(spec, total):
     try:
         start, end = int(a), int(b or a)
     except ValueError:
-        sys.exit(f"Invalid page range {spec!r} (use e.g. 5 or 1-20)")
+        raise ValueError(f"Invalid page range {spec!r} (use e.g. 5 or 1-20)")
     if end < start:
-        sys.exit(f"Invalid page range {spec!r}: end is before start")
+        raise ValueError(f"Invalid page range {spec!r}: end is before start")
     return list(range(max(start, 1) - 1, min(end, total)))
