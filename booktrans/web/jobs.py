@@ -76,9 +76,9 @@ class JobStore:
         return removed
 
 
-def default_backend(api_key):
-    from ..backends.anthropic_api import AnthropicBackend
-    return AnthropicBackend(api_key=api_key)
+def default_backend(api_key, provider="api"):
+    from ..backends import make_backend
+    return make_backend(provider, api_key=api_key)
 
 
 def preview_range(pages, total):
@@ -88,7 +88,7 @@ def preview_range(pages, total):
     return f"{idx[0] + 1}-{idx[min(PREVIEW_PAGES, len(idx)) - 1] + 1}"
 
 
-def run_job(root, job_id, api_key, backend_factory=default_backend):
+def run_job(root, job_id, api_key, backend_factory=default_backend, provider="api"):
     """Run one job to the end. Executed in a worker process (or thread, in tests)."""
     from ..pipeline import translate_book
     store = JobStore(root)
@@ -103,7 +103,7 @@ def run_job(root, job_id, api_key, backend_factory=default_backend):
     translator = None
     try:
         store.write(job_id, state="running", stage="scan", done=0, total=0, error="")
-        translator = backend_factory(api_key)
+        translator = backend_factory(api_key, provider)
         pages = job["range"]
         translate_book(path / ("input" + job["ext"]), path / "output.pdf", translator,
                        ocr_backend=translator if job["ocr"] else None, pages=pages,

@@ -4,5 +4,6 @@ ebooklib
 beautifulsoup4
 pymupdf
 anthropic
+openai
 opencv-python-headless
 fonttools

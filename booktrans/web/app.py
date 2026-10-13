@@ -18,10 +18,12 @@ STATIC = Path(__file__).parent / "static"
 EXTENSIONS = (".pdf", ".epub", ".txt")
 EST_COST_PER_PAGE = 0.017  # USD on the Anthropic API, measured on a scanned history book
 ACTIVE = ("queued", "running")
+WEB_PROVIDERS = ("api", "qwen", "qwen-intl", "deepseek")  # bring-your-own-key suppliers
 
 
 class StartRequest(BaseModel):
     api_key: str
+    provider: str = "api"
     pages: str = ""
     preview: bool = False
     ocr: bool = False
@@ -111,8 +113,10 @@ def create_app(data_dir=None, *, executor=None, backend_factory=jobs.default_bac
         if job["state"] in ACTIVE:
             raise HTTPException(409, "This job is already running.")
         key = req.api_key.strip()
-        if not key.startswith("sk-") or len(key) < 20:
-            raise HTTPException(400, "Enter your Anthropic API key (it starts with sk-).")
+        if req.provider not in WEB_PROVIDERS:
+            raise HTTPException(400, "Unknown provider.")
+        if len(key) < 8 or (req.provider == "api" and not key.startswith("sk-")):
+            raise HTTPException(400, "Enter your API key for the chosen provider.")
         try:
             idx = parse_range(req.pages.strip() or None, job["pages_total"])
         except ValueError as e:
@@ -126,7 +130,8 @@ def create_app(data_dir=None, *, executor=None, backend_factory=jobs.default_bac
             rng = jobs.preview_range(rng, job["pages_total"])
         store.write(job_id, state="queued", stage="", done=0, total=0, error="", ocr=req.ocr,
                     range=rng, preview=req.preview, started=time.time())
-        executor.submit(jobs.run_job, str(store.root), job_id, key, backend_factory)
+        executor.submit(jobs.run_job, str(store.root), job_id, key, backend_factory,
+                        req.provider)
         return public(store.read(job_id))
 
     @app.get("/api/jobs/{job_id}/download")

@@ -32,7 +32,7 @@ python -m booktrans mybook.pdf --pages 1-10     # -> mybook_bilingual pages 1-10
 | Option | Meaning |
 | --- | --- |
 | `-o, --output` | output PDF path |
-| `--backend {claude-cli,api}` | LLM provider (default `claude-cli`) |
+| `--backend NAME` | LLM provider: `claude-cli` (default), `api`, `qwen`, `qwen-intl`, `deepseek`, `openai-compatible` |
 | `--model` | model name (default: the backend's default) |
 | `--pages 1-20` | only this page range (a single number or `start-end`) |
 | `--redo 9-10` | re-translate these pages even if cached |
@@ -135,6 +135,15 @@ API: `POST /api/jobs` (upload) → `POST /api/jobs/{id}/start` (`api_key`, `page
 run the web service on any Linux server. See [docs/DEPLOY.md](docs/DEPLOY.md) for a
 step-by-step guide for Alibaba Cloud / Tencent Cloud (international sites, Singapore or
 Tokyo region).
+
+## Switching API supplier
+
+Any supplier that speaks the OpenAI chat protocol is one entry in `PROVIDERS`
+(`backends/openai_compat.py`): endpoint, key variable, default text and vision models.
+Built in: `qwen` / `qwen-intl` (key in `DASHSCOPE_API_KEY`), `deepseek` (`DEEPSEEK_API_KEY`,
+no vision). For any other, use `--backend openai-compatible --model NAME` with
+`BOOKTRANS_BASE_URL` and `BOOKTRANS_API_KEY`. `--ocr-model` picks the model for scanned pages.
+The web page has a supplier menu; the user's key goes to the chosen supplier only.
 
 ## Adding a backend
 

@@ -27,7 +27,9 @@ def parse_args():
     ap.add_argument("-o", "--output", type=Path)
     ap.add_argument("--backend", choices=list(BACKENDS), default="claude-cli",
                     help="claude-cli uses your Claude Code login (default); "
-                         "api needs ANTHROPIC_API_KEY")
+                         "api needs ANTHROPIC_API_KEY; qwen, qwen-intl, deepseek, "
+                         "openai-compatible need DASHSCOPE_API_KEY / DEEPSEEK_API_KEY / "
+                         "BOOKTRANS_API_KEY")
     ap.add_argument("--model", help="model name (default: backend's default)")
     ap.add_argument("--pages", help="page range to translate, e.g. 1-20")
     ap.add_argument("--redo", help="re-translate these pages even if cached, e.g. 9-10")
@@ -70,7 +72,8 @@ def run(args):
         ocr_backend = translator
         if args.ocr_backend or args.ocr_model:
             ocr_backend = make_backend(args.ocr_backend or args.backend,
-                                       args.ocr_model or args.model, usage)
+                                       args.ocr_model or args.model, usage,
+                                       vision_model=args.ocr_model)
         if not ocr_backend.supports_vision:
             sys.exit(f"--ocr needs a vision-capable backend; "
                      f"{type(ocr_backend).__name__} has none. Try --ocr-backend.")

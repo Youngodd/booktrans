@@ -94,10 +94,10 @@
 
   /* form */
   label { display: block; margin: var(--s1) 0 var(--s-1); font: 600 var(--s-1) / 1.2 var(--sans); }
-  input[type=text], input[type=password] {
+  select, input[type=text], input[type=password] {
     width: 100%; padding: var(--s-1) 0; border: 0; border-bottom: var(--hair) solid var(--ink);
     border-radius: 0; background: transparent; color: var(--ink); font: var(--s1) / var(--lh) var(--serif); }
-  input[type=text]:focus, input[type=password]:focus { outline: 0; border-bottom-color: var(--accent);
+  select:focus, input[type=text]:focus, input[type=password]:focus { outline: 0; border-bottom-color: var(--accent);
     box-shadow: 0 calc(var(--hair) * 1) 0 var(--accent); }
   input::placeholder { color: var(--mute); opacity: .7; }
   input[type=file] { width: 100%; padding: var(--s0); border: var(--hair) dashed var(--mute);
@@ -182,7 +182,14 @@
     <header><span class="no">§ 02</span><h2>Settings <i>设置</i></h2></header>
     <p id="bookinfo"></p>
     <p class="msg err hidden" id="insecure">This page is not using HTTPS, so your key would travel unencrypted. Do not enter a real key here. 本页未使用 HTTPS，你的 key 会以明文传输，请勿在此输入真实 key。</p>
-    <label for="key">Anthropic API key</label>
+    <label for="provider">Model provider 模型供应商</label>
+    <select id="provider">
+      <option value="api">Anthropic Claude</option>
+      <option value="qwen">Qwen 通义千问 (Alibaba Cloud, China 阿里云中国站)</option>
+      <option value="qwen-intl">Qwen 通义千问 (Alibaba Cloud, international 国际站)</option>
+      <option value="deepseek">DeepSeek (no scanned pages 不支持扫描页)</option>
+    </select>
+    <label for="key">API key</label>
     <input type="password" id="key" autocomplete="off" spellcheck="false" placeholder="sk-ant-…">
     <p class="hint">Used only for this job, kept in memory, never saved or logged. 仅用于本次任务，只保存在内存中，不会存储或记录。</p>
     <label for="pages">Page range 页码范围 <span style="font-weight:400;color:var(--mute)">(optional 可留空)</span></label>
@@ -269,12 +276,23 @@ function pageCount() {
 
 function updateEstimate() {
   if (!job) return;
+  if ($("provider").value !== "api") {
+    $("estimate").textContent = "费用按你的 API key 在该供应商处计费，请查看其价格。 Billed by the provider to your key; see their pricing.";
+    return;
+  }
   const n = pageCount(), c = n * job.est_cost_per_page;
   $("estimate").textContent = n + " 页 pages ≈ US$" + c.toFixed(2) +
     " (按你的 API key 计费 billed to your key; 估计值 estimate)";
 }
 
 $("pages").addEventListener("input", updateEstimate);
+$("provider").addEventListener("change", () => {
+  const p = $("provider").value;
+  $("key").placeholder = p === "api" ? "sk-ant-…" : p === "deepseek" ? "sk-…" : "sk-…";
+  $("ocr").disabled = p === "deepseek";
+  if ($("ocr").disabled) $("ocr").checked = false;
+  updateEstimate();
+});
 
 $("file").addEventListener("change", () => {
   const f = $("file").files[0];
@@ -302,7 +320,7 @@ async function start(preview) {
   try {
     const j = await api("/api/jobs/" + job.id + "/start", {
       method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ api_key: $("key").value, pages: $("pages").value, preview: preview, ocr: $("ocr").checked }),
+      body: JSON.stringify({ api_key: $("key").value, provider: $("provider").value, pages: $("pages").value, preview: preview, ocr: $("ocr").checked }),
     });
     $("key").value = "";  // the server has it; do not leave it in the page
     render(j); poll();

@@ -16,7 +16,7 @@ KEY = "sk-ant-test-1234567890abcdefghij"
 def make_client(tmp_path):
     pools = []
 
-    def make(factory=lambda key: FakeBackend(), **kw):
+    def make(factory=lambda key, provider="api": FakeBackend(), **kw):
         pool = ThreadPoolExecutor(max_workers=1)
         pools.append(pool)
         app = create_app(tmp_path / "data", executor=pool, backend_factory=factory, **kw)
@@ -100,7 +100,7 @@ def test_page_limit(make_client, text_pdf):
 
 
 def test_rejected_key_fails_job_without_leaking_key(make_client, text_pdf, tmp_path):
-    def factory(key):
+    def factory(key, provider="api"):
         class Bad(FakeBackend):
             def complete(self, *a, **k):
                 raise AuthError(f"The API key was rejected ({key})")
@@ -157,3 +157,19 @@ def test_limits_come_from_environment(tmp_path, monkeypatch):
     monkeypatch.setenv("BOOKTRANS_MAX_UPLOAD_MB", "0")
     app = create_app(tmp_path / "d", executor=ThreadPoolExecutor(1))
     assert upload(TestClient(app), "a.txt", b"hello").status_code == 413
+
+
+def test_provider_is_checked_and_passed_to_the_backend(make_client, text_pdf):
+    seen = []
+
+    def factory(key, provider="api"):
+        seen.append(provider)
+        return FakeBackend()
+
+    c = make_client(factory)
+    job = upload(c, "b.pdf", text_pdf.read_bytes()).json()
+    url = f"/api/jobs/{job['id']}/start"
+    assert c.post(url, json={"api_key": KEY, "provider": "nope"}).status_code == 400
+    assert c.post(url, json={"api_key": "short", "provider": "qwen"}).status_code == 400
+    assert c.post(url, json={"api_key": "sk-abcdefgh", "provider": "qwen"}).status_code == 200
+    assert seen == ["qwen"]
