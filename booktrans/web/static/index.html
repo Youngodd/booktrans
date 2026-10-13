@@ -5,106 +5,228 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Book Translator 双语书翻译</title>
 <style>
+  /* Three seeds (base size, scale ratio, line length) and three colours.
+     Every other size below is computed from them with calc(). */
   :root {
-    --bg: #f6f5f2; --card: #ffffff; --ink: #1d1d1b; --muted: #6b6a66; --line: #e2e0da;
-    --accent: #1f5f8b; --accent-ink: #ffffff; --ok: #2e7d4f; --bad: #b3261e; --track: #e9e7e1;
+    --base: clamp(1rem, 0.94rem + 0.3vw, 1.25rem);
+    --ratio: 1.25;
+    --measure: 72;                       /* characters per line */
+
+    --paper: #f4efe5; --ink: #1d1a16; --accent: #9b4f26;
+
+    /* type scale: each step is the previous one times the ratio */
+    --s-2: calc(var(--s-1) / var(--ratio));
+    --s-1: calc(var(--s0) / var(--ratio));
+    --s0: var(--base);
+    --s1: calc(var(--s0) * var(--ratio));
+    --s2: calc(var(--s1) * var(--ratio));
+    --s3: calc(var(--s2) * var(--ratio));
+    --s4: calc(var(--s3) * var(--ratio));
+    --s5: calc(var(--s4) * var(--ratio));
+
+    --r3: calc(var(--ratio) * var(--ratio) * var(--ratio));
+    --lh: calc(1 + 1 / (var(--ratio) * 2));                  /* body */
+    --lh-tight: calc(1 + 1 / (var(--r3) * var(--r3) * var(--r3)));  /* headlines */
+    --track: calc(1em / (var(--r3) * var(--r3) * var(--r3)));       /* letter-spacing of small caps */
+    --cell: calc(var(--s5) * var(--r3) * var(--ratio));              /* narrowest grid column */
+    --hair: calc(var(--s0) / 16);                      /* rule thickness */
+    --radius: calc(var(--s-2) / var(--ratio));
+    --page: calc(var(--measure) * 1ch + var(--s5));    /* column + gutters */
+    --gutter: var(--s1);
+
+    --mute: color-mix(in srgb, var(--ink) 58%, var(--paper));
+    --rule: color-mix(in srgb, var(--ink) 16%, var(--paper));
+    --wash: color-mix(in srgb, var(--ink) 5%, var(--paper));
+    --good: color-mix(in srgb, #2d7a4b 80%, var(--ink));
+    --bad: color-mix(in srgb, #b3261e 85%, var(--ink));
+
+    --serif: "Newsreader", "Noto Serif", "Noto Serif SC", "Songti SC", "Source Han Serif SC", Georgia, serif;
+    --sans: "Inter", system-ui, -apple-system, "PingFang SC", "Noto Sans SC", "Segoe UI", sans-serif;
   }
   @media (prefers-color-scheme: dark) {
     :root:not([data-theme="light"]) {
-      --bg: #151515; --card: #1f1f1e; --ink: #ececea; --muted: #a09f9a; --line: #333331;
-      --accent: #6fb1dc; --accent-ink: #10202b; --ok: #6cc28c; --bad: #f0827a; --track: #2c2c2a;
+      --paper: #17150f; --ink: #ece6d9; --accent: #d9915f;
+      --good: color-mix(in srgb, #6cc28c 80%, var(--ink));
+      --bad: color-mix(in srgb, #f0827a 85%, var(--ink));
     }
   }
+
   * { box-sizing: border-box; }
-  body { margin: 0; background: var(--bg); color: var(--ink);
-         font: 16px/1.55 -apple-system, "PingFang SC", "Segoe UI", "Noto Sans SC", sans-serif; }
-  main { max-width: 640px; margin: 0 auto; padding: 32px 16px 64px; }
-  h1 { font-size: 1.6rem; margin: 0 0 4px; }
-  .sub { color: var(--muted); margin: 0 0 24px; }
-  .card { background: var(--card); border: 1px solid var(--line); border-radius: 12px;
-          padding: 20px; margin-bottom: 16px; }
-  .card h2 { font-size: 1rem; margin: 0 0 12px; }
-  label { display: block; font-size: .9rem; margin: 12px 0 4px; }
-  input[type=text], input[type=password], input[type=file] {
-    width: 100%; padding: 10px 12px; border: 1px solid var(--line); border-radius: 8px;
-    background: var(--bg); color: var(--ink); font: inherit; }
-  .row { display: flex; gap: 12px; flex-wrap: wrap; }
-  .row > * { flex: 1 1 200px; }
-  .check { display: flex; gap: 8px; align-items: flex-start; font-size: .9rem; margin: 12px 0; }
-  .check input { margin-top: 4px; }
-  .hint { color: var(--muted); font-size: .85rem; margin: 4px 0 0; }
-  button { font: inherit; padding: 10px 16px; border-radius: 8px; border: 1px solid var(--accent);
-           background: var(--accent); color: var(--accent-ink); cursor: pointer; }
-  button.secondary { background: transparent; color: var(--accent); }
-  button:disabled { opacity: .5; cursor: not-allowed; }
-  .actions { display: flex; gap: 12px; flex-wrap: wrap; margin-top: 16px; }
-  .bar { height: 10px; background: var(--track); border-radius: 5px; overflow: hidden; margin: 12px 0 8px; }
+  html { background: var(--paper); }
+  body { margin: 0; color: var(--ink); background: var(--paper);
+         font: var(--s0) / var(--lh) var(--serif); -webkit-font-smoothing: antialiased; }
+  .wrap { width: min(100% - 2 * var(--gutter), var(--page)); margin-inline: auto; }
+  a { color: inherit; }
+  .label { font: 600 var(--s-1) / 1 var(--sans); letter-spacing: var(--track);
+           text-transform: uppercase; color: var(--mute); }
+  i, em { font-style: italic; }
+
+  /* masthead */
+  .masthead { border-bottom: var(--hair) solid var(--ink); padding-block: var(--s0); }
+  .masthead .wrap { display: flex; justify-content: space-between; align-items: baseline;
+                    gap: var(--s0); flex-wrap: wrap; }
+  .brand { font-size: var(--s1); font-weight: 600; letter-spacing: -0.01em; }
+  .brand i { color: var(--accent); font-weight: 400; }
+  nav { display: flex; gap: var(--s1); }
+  nav a { text-decoration: none; font: var(--s-1) / 1 var(--sans); color: var(--mute); }
+  nav a:hover { color: var(--accent); }
+  nav a b { color: var(--accent); font-weight: 600; margin-right: var(--s-2); }
+
+  /* hero */
+  .hero { padding-block: calc(var(--s5) * var(--ratio)) var(--s3); }
+  .hero h1 { font-size: min(calc(var(--s3) + 3vw), var(--s5)); line-height: var(--lh-tight);
+             font-weight: 500; letter-spacing: -0.02em; margin: var(--s0) 0 var(--s1); }
+  .hero h1 em { color: var(--accent); }
+  .hero .zh { font-size: var(--s2); color: var(--mute); margin: 0 0 var(--s1); }
+  .hero .lead { max-width: calc(var(--measure) * 1ch); margin: 0; color: var(--mute); }
+  .facts { display: grid; grid-template-columns: repeat(auto-fit, minmax(var(--cell), 1fr));
+           gap: var(--s1); margin: var(--s3) 0 0; padding-top: var(--s1); border-top: var(--hair) solid var(--rule); }
+  .facts dt { font: 600 var(--s-1) / 1 var(--sans); letter-spacing: var(--track);
+              text-transform: uppercase; color: var(--mute); margin-bottom: var(--s-1); }
+  .facts dd { margin: 0; font-size: var(--s0); line-height: var(--lh-tight); }
+
+  /* numbered sections */
+  .step { padding-block: var(--s2); border-top: var(--hair) solid var(--ink); }
+  .step > header { display: flex; align-items: baseline; gap: var(--s0); margin-bottom: var(--s1); }
+  .step .no { font: 600 var(--s-1) / 1 var(--sans); color: var(--accent); letter-spacing: var(--track); }
+  .step h2 { font-size: var(--s3); line-height: var(--lh-tight); font-weight: 500; margin: 0; letter-spacing: -0.01em; }
+  .step h2 i { color: var(--mute); font-weight: 400; }
+
+  /* form */
+  label { display: block; margin: var(--s1) 0 var(--s-1); font: 600 var(--s-1) / 1.2 var(--sans); }
+  input[type=text], input[type=password] {
+    width: 100%; padding: var(--s-1) 0; border: 0; border-bottom: var(--hair) solid var(--ink);
+    border-radius: 0; background: transparent; color: var(--ink); font: var(--s1) / var(--lh) var(--serif); }
+  input[type=text]:focus, input[type=password]:focus { outline: 0; border-bottom-color: var(--accent);
+    box-shadow: 0 calc(var(--hair) * 1) 0 var(--accent); }
+  input::placeholder { color: var(--mute); opacity: .7; }
+  input[type=file] { width: 100%; padding: var(--s0); border: var(--hair) dashed var(--mute);
+    border-radius: var(--radius); background: var(--wash); font: var(--s-1) var(--sans); color: var(--mute); }
+  input[type=file]::file-selector-button { margin-right: var(--s0); padding: var(--s-1) var(--s0);
+    border: var(--hair) solid var(--ink); border-radius: var(--radius); background: var(--paper);
+    color: var(--ink); font: 600 var(--s-1) var(--sans); cursor: pointer; }
+  .check { display: flex; gap: var(--s-1); align-items: flex-start; margin: var(--s0) 0; font: var(--s-1) / var(--lh) var(--sans); font-weight: 400; }
+  .check input { margin-top: calc(var(--s-2) / var(--ratio)); accent-color: var(--accent); }
+  .hint { font: var(--s-1) / var(--lh) var(--sans); color: var(--mute); margin: var(--s-1) 0 0; max-width: calc(var(--measure) * 1ch); }
+  #bookinfo { font-size: var(--s1); margin: 0; }
+
+  /* actions: one solid button, the rest are arrow links */
+  .actions { display: flex; align-items: center; gap: var(--s1); flex-wrap: wrap; margin-top: var(--s1); }
+  button, a.btn { font: 600 var(--s-1) / 1 var(--sans); letter-spacing: calc(var(--track) / 2);
+    cursor: pointer; border-radius: var(--radius); text-decoration: none; }
+  #btn-start, a.btn { padding: var(--s0) var(--s1); background: var(--ink); color: var(--paper);
+    border: var(--hair) solid var(--ink); transition: background .15s, border-color .15s; }
+  #btn-start:hover, a.btn:hover { background: var(--accent); border-color: var(--accent); }
+  button.secondary { background: none; border: 0; padding: var(--s-1) 0; color: var(--ink);
+    border-bottom: var(--hair) solid var(--ink); border-radius: 0; }
+  button.secondary::after { content: " →"; }
+  button.secondary:hover { color: var(--accent); border-bottom-color: var(--accent); }
+  button:disabled { opacity: .45; cursor: not-allowed; }
+
+  /* progress */
+  .bar { height: var(--s-2); background: var(--wash); border-top: var(--hair) solid var(--rule);
+         border-bottom: var(--hair) solid var(--rule); margin: var(--s0) 0; overflow: hidden; }
   .bar > div { height: 100%; width: 0; background: var(--accent); transition: width .3s; }
-  .msg { margin: 8px 0 0; }
+  .msg { margin: var(--s-1) 0 0; font: var(--s0) / var(--lh) var(--serif); }
+  .msg:empty { display: none; }
   .err { color: var(--bad); }
-  .done { color: var(--ok); }
-  .hidden { display: none; }
-  a.btn { display: inline-block; padding: 10px 16px; border-radius: 8px; background: var(--ok);
-          color: var(--bg); text-decoration: none; }
-  footer { color: var(--muted); font-size: .85rem; }
+  .done { color: var(--good); }
+  .hidden { display: none !important; }
+
+  /* footer */
+  footer { margin-top: var(--s3); padding-block: var(--s2) var(--s3); border-top: var(--hair) solid var(--ink); }
+  .cols { display: grid; grid-template-columns: repeat(auto-fit, minmax(var(--cell), 1fr)); gap: var(--s2); }
+  .cols h3 { margin: 0 0 var(--s-1); font: 600 var(--s-1) / 1 var(--sans); letter-spacing: var(--track);
+             text-transform: uppercase; color: var(--accent); }
+  .cols p { margin: 0 0 var(--s-1); font: var(--s-1) / var(--lh) var(--sans); color: var(--mute); }
+  .colophon { margin-top: var(--s2); padding-top: var(--s0); border-top: var(--hair) solid var(--rule);
+              font: var(--s-1) / var(--lh) var(--sans); color: var(--mute); }
 </style>
 </head>
 <body>
-<main>
-  <h1>Book Translator · 双语书翻译</h1>
-  <p class="sub">Upload an English book; get a PDF where every English page is followed by its Chinese translation.<br>
-     上传英文书，得到一份双语 PDF：每一页英文后面紧跟对应的中文页。</p>
+<header class="masthead">
+  <div class="wrap">
+    <span class="brand">Book Translator <i>双语书翻译</i></span>
+    <nav>
+      <a href="#step-upload"><b>01</b>Translate</a>
+      <a href="#how"><b>02</b>How it works</a>
+      <a href="#privacy"><b>03</b>Privacy</a>
+    </nav>
+  </div>
+</header>
 
-  <section class="card" id="step-upload">
-    <h2>1 · 上传 Upload</h2>
+<main class="wrap">
+  <section class="hero">
+    <span class="label">Bilingual books · 双语对照</span>
+    <h1>Every English page, followed by its <em>Chinese</em> translation.</h1>
+    <p class="zh">每一页英文，后面紧跟对应的中文页。</p>
+    <p class="lead">Upload a book, bring your own Anthropic API key, and receive one PDF that keeps the original layout —
+       paragraphs, tables, figures and all. 上传一本书，使用你自己的 API key，得到一份保留原版面的双语 PDF。</p>
+    <dl class="facts">
+      <div><dt>Formats</dt><dd>PDF · EPUB · TXT</dd></div>
+      <div><dt>Output</dt><dd>Bilingual PDF</dd></div>
+      <div><dt>Your key</dt><dd>Memory only, never stored</dd></div>
+      <div><dt>Files</dt><dd>Deleted after 24 h</dd></div>
+    </dl>
+  </section>
+
+  <section class="step" id="step-upload">
+    <header><span class="no">§ 01</span><h2>Upload <i>上传</i></h2></header>
     <input type="file" id="file" accept=".pdf,.epub,.txt">
     <p class="hint">PDF / EPUB / TXT, ≤ <span id="maxmb">60</span> MB</p>
     <div class="bar hidden" id="upbar"><div></div></div>
     <p class="msg" id="upmsg"></p>
   </section>
 
-  <section class="card hidden" id="step-setup">
-    <h2>2 · 设置 Settings</h2>
+  <section class="step hidden" id="step-setup">
+    <header><span class="no">§ 02</span><h2>Settings <i>设置</i></h2></header>
     <p id="bookinfo"></p>
     <label for="key">Anthropic API key</label>
-    <input type="password" id="key" autocomplete="off" spellcheck="false" placeholder="sk-ant-...">
-    <p class="hint">Used only for this job, kept in memory, never saved or logged.
-       仅用于本次任务，只保存在内存中，不会存储或记录。</p>
-    <div class="row">
-      <div>
-        <label for="pages">页码范围 Page range (可留空 optional)</label>
-        <input type="text" id="pages" placeholder="例如 1-20 e.g. 1-20">
-      </div>
-    </div>
+    <input type="password" id="key" autocomplete="off" spellcheck="false" placeholder="sk-ant-…">
+    <p class="hint">Used only for this job, kept in memory, never saved or logged. 仅用于本次任务，只保存在内存中，不会存储或记录。</p>
+    <label for="pages">Page range 页码范围 <span style="font-weight:400;color:var(--mute)">(optional 可留空)</span></label>
+    <input type="text" id="pages" placeholder="e.g. 1-20 例如 1-20">
     <label class="check"><input type="checkbox" id="ocr">
-      <span>扫描页没有文字层时用视觉模型识别 (OCR, 会多花一些费用) · Read pages that have no text layer with vision OCR (extra cost)</span></label>
+      <span>Read pages that have no text layer with vision OCR (extra cost). 扫描页没有文字层时用视觉模型识别（会多花一些费用）。</span></label>
     <p class="hint" id="estimate"></p>
     <label class="check"><input type="checkbox" id="rights">
-      <span>我确认我有权翻译这本书，并对其使用负责。 · I confirm I have the right to translate this book and take responsibility for it.</span></label>
+      <span>I confirm I have the right to translate this book and take responsibility for it. 我确认我有权翻译这本书，并对其使用负责。</span></label>
     <div class="actions">
-      <button class="secondary" id="btn-preview">试译前 3 页 Preview 3 pages</button>
-      <button id="btn-start">开始翻译 Translate</button>
+      <button id="btn-start">Translate 开始翻译</button>
+      <button class="secondary" id="btn-preview">Preview 3 pages 试译前 3 页</button>
     </div>
     <p class="msg err" id="startmsg"></p>
   </section>
 
-  <section class="card hidden" id="step-run">
-    <h2>3 · 进度 Progress</h2>
+  <section class="step hidden" id="step-run">
+    <header><span class="no">§ 03</span><h2>Progress <i>进度</i></h2></header>
     <div class="bar"><div id="bar"></div></div>
     <p class="msg" id="stage"></p>
     <p class="msg err" id="runerr"></p>
     <div class="actions">
-      <a class="btn hidden" id="download" href="#">下载 PDF Download</a>
-      <button class="secondary hidden" id="btn-again">再来一次 / 继续 Run again</button>
-      <button class="secondary hidden" id="btn-delete">删除我的文件 Delete my files</button>
+      <a class="btn hidden" id="download" href="#">Download PDF 下载</a>
+      <button class="secondary hidden" id="btn-again">Run again 再来一次</button>
+      <button class="secondary hidden" id="btn-delete">Delete my files 删除我的文件</button>
     </div>
   </section>
-
-  <footer>
-    Files are deleted automatically after 24 hours. Translation quality can vary; check important pages.<br>
-    文件会在 24 小时后自动删除。翻译质量可能有差异，重要内容请自行核对。
-  </footer>
 </main>
+
+<footer>
+  <div class="wrap">
+    <div class="cols">
+      <div id="how"><h3>How it works</h3>
+        <p>The book is read page by page. Paragraphs, table cells and figure labels are translated; lines, curves and symbols are kept.</p>
+        <p>逐页处理：翻译段落、表格单元格和图中文字，保留线条、曲线和符号。</p></div>
+      <div id="privacy"><h3>Privacy</h3>
+        <p>Your API key lives in memory for one job only. Uploads and results are deleted automatically after 24 hours, or when you delete them.</p>
+        <p>API key 只在任务期间存于内存；文件 24 小时后自动删除。</p></div>
+      <div><h3>Good to know</h3>
+        <p>Cost is billed to your own key, roughly a few cents per page. Translation quality can vary; check important pages.</p>
+        <p>费用由你的 key 承担，大约每页几美分。翻译质量可能有差异，重要内容请自行核对。</p></div>
+    </div>
+    <p class="colophon">Set in Newsreader, Noto Serif and Inter where installed. 排版：有衬线正文，无衬线标注。</p>
+  </div>
+</footer>
 
 <script>
 const $ = (id) => document.getElementById(id);
