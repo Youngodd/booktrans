@@ -1,0 +1,9 @@
+# DOMAIN=:80 serves plain HTTP on the server's IP (testing only);
+# DOMAIN=books.example.com serves HTTPS with an automatic certificate.
+{$DOMAIN} {
+	encode zstd gzip
+	request_body {
+		max_size 70MB
+	}
+	reverse_proxy app:8000
+}

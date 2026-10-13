@@ -1,4 +1,5 @@
 """The web service: upload a book, start a translation with your own API key, download."""
+import asyncio
 import os
 import time
 from concurrent.futures import ProcessPoolExecutor
@@ -26,9 +27,21 @@ class StartRequest(BaseModel):
     ocr: bool = False
 
 
+def _setting(value, env, default):
+    """An explicit argument wins, then the environment variable, then the default."""
+    return value if value is not None else int(os.environ.get(env, default))
+
+
 def create_app(data_dir=None, *, executor=None, backend_factory=jobs.default_backend,
-               max_upload_mb=60, max_pages=400, retention_hours=24):
-    """Build the app. `executor` runs jobs (default: a pool of worker processes)."""
+               max_upload_mb=None, max_pages=None, retention_hours=None):
+    """Build the app. `executor` runs jobs (default: a pool of worker processes).
+
+    Limits come from the arguments, else BOOKTRANS_MAX_UPLOAD_MB (60),
+    BOOKTRANS_MAX_PAGES (400) and BOOKTRANS_RETENTION_HOURS (24).
+    """
+    max_upload_mb = _setting(max_upload_mb, "BOOKTRANS_MAX_UPLOAD_MB", 60)
+    max_pages = _setting(max_pages, "BOOKTRANS_MAX_PAGES", 400)
+    retention_hours = _setting(retention_hours, "BOOKTRANS_RETENTION_HOURS", 24)
     data_dir = data_dir or os.environ.get("BOOKTRANS_DATA", "data")
     store = JobStore(Path(data_dir) / "jobs")
     executor = executor or ProcessPoolExecutor(int(os.environ.get("BOOKTRANS_WORKERS", "2")))
@@ -36,8 +49,15 @@ def create_app(data_dir=None, *, executor=None, backend_factory=jobs.default_bac
     app.state.store = store
 
     @app.on_event("startup")
-    def _cleanup():
+    async def _cleanup():
+        """Delete expired jobs now and then every hour while the server runs."""
         store.cleanup(retention_hours * 3600)
+
+        async def hourly():
+            while True:
+                await asyncio.sleep(3600)
+                await asyncio.to_thread(store.cleanup, retention_hours * 3600)
+        app.state.cleanup_task = asyncio.create_task(hourly())
 
     def get_job(job_id):
         job = store.read(job_id)
@@ -49,6 +69,10 @@ def create_app(data_dir=None, *, executor=None, backend_factory=jobs.default_bac
         keys = ("id", "filename", "state", "stage", "done", "total", "error", "pages_total",
                 "range", "preview", "usage")
         return {k: job[k] for k in keys if k in job} | {"est_cost_per_page": EST_COST_PER_PAGE}
+
+    @app.get("/healthz")
+    def healthz():
+        return {"ok": True}
 
     @app.get("/")
     def index():

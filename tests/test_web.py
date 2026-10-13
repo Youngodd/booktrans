@@ -147,3 +147,13 @@ def test_cleanup_removes_old_jobs(make_client, text_pdf):
         os.utime(p, (old, old))
     assert store.cleanup(24 * 3600) == 1
     assert c.get(f"/api/jobs/{job['id']}").status_code == 404
+
+
+def test_healthz(make_client):
+    assert make_client().get("/healthz").json() == {"ok": True}
+
+
+def test_limits_come_from_environment(tmp_path, monkeypatch):
+    monkeypatch.setenv("BOOKTRANS_MAX_UPLOAD_MB", "0")
+    app = create_app(tmp_path / "d", executor=ThreadPoolExecutor(1))
+    assert upload(TestClient(app), "a.txt", b"hello").status_code == 413

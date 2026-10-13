@@ -1,0 +1,12 @@
+.venv
+.git
+.pytest_cache
+__pycache__
+data
+tests
+*.pdf
+*.epub
+*.cache.json
+*.ocr.json
+*.usage.json
+.env

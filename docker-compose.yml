@@ -1,0 +1,33 @@
+# One command on a Linux server:  docker compose up -d --build
+# Caddy in front of the app gets a free HTTPS certificate for $DOMAIN automatically.
+services:
+  app:
+    build: .
+    restart: unless-stopped
+    environment:
+      BOOKTRANS_WORKERS: ${BOOKTRANS_WORKERS:-2}
+      BOOKTRANS_MAX_UPLOAD_MB: ${BOOKTRANS_MAX_UPLOAD_MB:-60}
+      BOOKTRANS_MAX_PAGES: ${BOOKTRANS_MAX_PAGES:-400}
+      BOOKTRANS_RETENTION_HOURS: ${BOOKTRANS_RETENTION_HOURS:-24}
+    volumes:
+      - data:/data
+
+  caddy:
+    image: caddy:2
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      DOMAIN: ${DOMAIN:-:80}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - app
+
+volumes:
+  data:
+  caddy_data:
+  caddy_config:

@@ -129,6 +129,13 @@ API: `POST /api/jobs` (upload) → `POST /api/jobs/{id}/start` (`api_key`, `page
 `preview`, `ocr`) → `GET /api/jobs/{id}` (state, stage, done/total) →
 `GET /api/jobs/{id}/download`; `DELETE /api/jobs/{id}` removes the files.
 
+### Deploying
+
+`Dockerfile`, `docker-compose.yml` (app + Caddy for automatic HTTPS) and `.env.example`
+run the web service on any Linux server. See [docs/DEPLOY.md](docs/DEPLOY.md) for a
+step-by-step guide for Alibaba Cloud / Tencent Cloud (international sites, Singapore or
+Tokyo region).
+
 ## Adding a backend
 
 Backends live in `booktrans/backends/`. Subclass `LLMBackend` and implement
