@@ -86,6 +86,26 @@ scan, so spot-check a few pages. Use `--ocr-model` to pick a different model
 for OCR than for translation.
 Token usage of each run is appended to `<output>.usage.json`.
 
+## Use as a library
+
+The command line is a thin wrapper around `booktrans.pipeline.translate_book`,
+which prints nothing and never exits the process, so a web service can call it:
+
+```python
+from booktrans.backends import make_backend
+from booktrans.pipeline import count_pages, translate_book
+
+pages = count_pages("book.pdf", "1-20")            # for a cost estimate
+translator = make_backend("api")                   # ANTHROPIC_API_KEY, or pass your own backend
+translate_book("book.pdf", "out.pdf", translator, pages="1-20",
+               progress=lambda stage, done, total: print(stage, done, total))
+```
+
+`progress(stage, done, total)` is called as pages complete, with stage `scan`,
+`ocr`, `translate` or `render`. Failed model calls (dropped connection, rate
+limit) are retried with a growing delay and then raise `BackendError`; progress
+is cached, so calling again resumes the job.
+
 ## Adding a backend
 
 Backends live in `booktrans/backends/`. Subclass `LLMBackend` and implement
@@ -100,7 +120,8 @@ backend that has no vision stops immediately with a clear message.
 
 ```
 booktrans/
-  cli.py          argument parsing; runs the steps below in order
+  cli.py          argument parsing and printing; calls pipeline.translate_book
+  pipeline.py     the whole job as a function, with a progress callback
   readers.py      PDF / EPUB / TXT -> list of page texts, page ranges
   ocr.py          OCR of scanned pages (via a vision backend)
   translate.py    translation, retry/fallback, on-disk cache

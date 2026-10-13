@@ -1,7 +1,7 @@
 """Backend for the Anthropic API (needs ANTHROPIC_API_KEY)."""
 import base64
 
-from .base import LLMBackend
+from .base import BackendError, LLMBackend
 
 DEFAULT_MODEL = "claude-sonnet-5-5"
 
@@ -9,14 +9,18 @@ DEFAULT_MODEL = "claude-sonnet-5-5"
 class AnthropicBackend(LLMBackend):
     supports_vision = True
 
-    def __init__(self, model=None, usage=None):
+    def __init__(self, model=None, usage=None, api_key=None):
         import anthropic
         super().__init__(model or DEFAULT_MODEL, usage)
-        self.client = anthropic.Anthropic()
+        self.client = anthropic.Anthropic(api_key=api_key)  # None: use ANTHROPIC_API_KEY
 
     def _send(self, messages, max_tokens, **kw):
-        msg = self.client.messages.create(model=self.model, max_tokens=max_tokens,
-                                          messages=messages, **kw)
+        import anthropic
+        try:
+            msg = self.client.messages.create(model=self.model, max_tokens=max_tokens,
+                                              messages=messages, **kw)
+        except anthropic.APIError as e:
+            raise BackendError(f"Anthropic API error: {e}") from e
         self.usage.record(msg.usage)
         return "".join(b.text for b in msg.content if b.type == "text").strip()
 

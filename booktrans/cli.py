@@ -4,14 +4,10 @@ import sys
 from pathlib import Path
 
 from .backends import BACKENDS, make_backend
-from .layout import collect_layout, render_layout_page
-from .ocr import ocr_scanned_pages
+from .backends.base import BackendError
+from .pipeline import MIN_TEXT_CHARS, default_output, translate_book
 from .readers import parse_range, read_book
-from .translate import load_cache, translate_all
 from .usage import Usage
-from .writer import make_pdf
-
-MIN_TEXT_CHARS = 20  # PDF pages with less text than this are treated as scans
 
 DOC = """Translate an English book (PDF / EPUB / TXT) into a bilingual PDF.
 
@@ -46,16 +42,13 @@ def parse_args():
     return ap.parse_args()
 
 
-def build_source_pdf(book, idx, out):
-    """A PDF of just the selected pages (for --pages), or None for the whole book."""
-    from pypdf import PdfReader, PdfWriter
-    r, w = PdfReader(str(book)), PdfWriter()
-    for i in idx:
-        w.add_page(r.pages[i])
-    path = out.with_suffix(".src.pdf")
-    with open(path, "wb") as f:
-        w.write(f)
-    return path
+def make_progress():
+    """Print one line per page for the slow stages (translation, OCR)."""
+    def progress(stage, done, total):
+        if stage in ("translate", "ocr"):
+            print(f"{'OCR' if stage == 'ocr' else 'Translating'} page {done}/{total}...",
+                  flush=True)
+    return progress
 
 
 def main():
@@ -64,8 +57,9 @@ def main():
     is_pdf = args.book.suffix.lower() == ".pdf"
 
     translator = make_backend(args.backend, args.model, usage)
-    ocr_backend = translator
+    ocr_backend = None
     if args.ocr:
+        ocr_backend = translator
         if args.ocr_backend or args.ocr_model:
             ocr_backend = make_backend(args.ocr_backend or args.backend,
                                        args.ocr_model or args.model, usage)
@@ -73,39 +67,18 @@ def main():
             sys.exit(f"--ocr needs a vision-capable backend; "
                      f"{type(ocr_backend).__name__} has none. Try --ocr-backend.")
 
-    all_pages = read_book(args.book)
-    idx = parse_range(args.pages, len(all_pages))
-    pages = [all_pages[i] for i in idx]
-    suffix = " pages " + args.pages.replace(" ", "") if args.pages else ""
-    out = args.output or args.book.with_name(f"{args.book.stem}_bilingual{suffix}.pdf")
-    cache_path = out.with_suffix(".cache.json")
-
-    scanned = ([n for n, t in enumerate(pages) if len(t.strip()) < MIN_TEXT_CHARS]
-               if is_pdf else [])
+    pages = read_book(args.book)
+    idx = parse_range(args.pages, len(pages))
+    scanned = [i for i in idx if len(pages[i].strip()) < MIN_TEXT_CHARS] if is_pdf else []
     if scanned and not args.ocr:
-        print(f"Warning: {len(scanned)} of {len(pages)} pages have no text layer "
+        print(f"Warning: {len(scanned)} of {len(idx)} pages have no text layer "
               "(scanned?). Re-run with --ocr to read them.", file=sys.stderr)
-    elif scanned:
-        ocr_scanned_pages(ocr_backend, args.book, idx, pages, scanned,
-                          out.with_suffix(".ocr.json"))
 
-    # text PDFs: translate block by block and redraw the original page in Chinese
-    layout, ctx = ({}, {}) if not is_pdf or args.flat else \
-        collect_layout(args.book, idx, skip=scanned)
-
-    redo = set(parse_range(args.redo, len(all_pages))) if args.redo else set()
-    cache = load_cache(cache_path)
-    translations = translate_all(translator, idx, pages, layout, ctx,
-                                 cache, cache_path, redo)
-
-    original = None
-    if is_pdf:
-        # keep the original page layout; a page range needs a trimmed copy
-        original = build_source_pdf(args.book, idx, out) if args.pages else args.book
-    zh_pages = {n: render_layout_page(args.book, idx[n], blocks, cache["L%d" % idx[n]])
-                for n, blocks in layout.items()}
-    make_pdf(pages, translations, out, original, zh_pages)
-    if original and original != args.book:
-        original.unlink()
+    out = args.output or default_output(args.book, args.pages)
+    try:
+        translate_book(args.book, out, translator, ocr_backend=ocr_backend, pages=args.pages,
+                       redo=args.redo, flat=args.flat, progress=make_progress())
+    except BackendError as e:
+        sys.exit(f"{e}\nProgress is saved; run the same command again to resume.")
     print(f"Done: {out}")
     usage.report(out)

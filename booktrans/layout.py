@@ -428,23 +428,32 @@ def render_layout_page(book, page_no, blocks, zh):
         return doc.tobytes(garbage=4, deflate=True)
 
 
-def collect_layout(book, idx, skip=()):
+def collect_layout(book, idx, skip=(), progress=None):
     """Blocks and neighbour-page context for each page n of `idx` not in `skip`.
 
-    Returns (layout, ctx) dicts keyed by position n in `idx`.
+    Returns (layout, ctx) dicts keyed by position n in `idx`. Each page is
+    analysed once, even though it is also context for its neighbours.
     """
     import fitz
-    layout, ctx = {}, {}
+    layout, ctx, memo = {}, {}, {}
+
+    def blocks_of(doc, i):
+        if i not in memo:
+            memo[i] = page_blocks(doc[i])
+        return memo[i]
+
     with fitz.open(str(book)) as doc:
         for n, i in enumerate(idx):
-            if n in skip:
-                continue
-            blocks = page_blocks(doc[i])
-            if blocks:
-                layout[n] = blocks
-                # neighbouring pages, so sentences cut by a page break translate well
-                prev = page_blocks(doc[i - 1]) if i > 0 else []
-                nxt = page_blocks(doc[i + 1]) if i + 1 < len(doc) else []
-                ctx[n] = (" ".join(b["text"] for b in prev[-3:])[-600:],
-                          " ".join(b["text"] for b in nxt[:2])[:400])
+            memo.pop(i - 3, None)  # only the neighbours are needed again
+            if n not in skip:
+                blocks = blocks_of(doc, i)
+                if blocks:
+                    layout[n] = blocks
+                    # neighbouring pages, so sentences cut by a page break translate well
+                    prev = blocks_of(doc, i - 1) if i > 0 else []
+                    nxt = blocks_of(doc, i + 1) if i + 1 < len(doc) else []
+                    ctx[n] = (" ".join(b["text"] for b in prev[-3:])[-600:],
+                              " ".join(b["text"] for b in nxt[:2])[:400])
+            if progress:
+                progress("scan", n + 1, len(idx))
     return layout, ctx

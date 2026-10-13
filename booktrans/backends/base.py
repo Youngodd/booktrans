@@ -1,6 +1,10 @@
 """Interface every LLM provider implements."""
 
 
+class BackendError(RuntimeError):
+    """A model call failed (network, auth, quota...). Calls may be retried."""
+
+
 class LLMBackend:
     """A text-in/text-out model. Vision (for OCR) is optional."""
 

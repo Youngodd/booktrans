@@ -1,11 +1,10 @@
 """Backend that shells out to the local `claude` CLI (Claude Pro/Max login)."""
 import json
 import subprocess
-import sys
 import tempfile
 from pathlib import Path
 
-from .base import LLMBackend
+from .base import BackendError, LLMBackend
 
 
 class ClaudeCLIBackend(LLMBackend):
@@ -22,7 +21,8 @@ class ClaudeCLIBackend(LLMBackend):
         except ValueError:
             data = None
         if r.returncode != 0 or not data or data.get("is_error"):
-            sys.exit(f"claude CLI failed: {r.stderr.strip() or r.stdout.strip()}")
+            msg = (data or {}).get("result") or r.stderr.strip() or r.stdout.strip()
+            raise BackendError(f"claude CLI failed: {msg}")
         self.usage.record(data.get("usage") or {}, data.get("total_cost_usd"))
         return data.get("result", "").strip()
 

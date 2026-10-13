@@ -1,8 +1,23 @@
 """Translate page text through an LLM backend, with an on-disk cache."""
 import json
 import re
+import time
 
+from .backends.base import BackendError
 from .prompts import LAYOUT_PROMPT, SYSTEM_PROMPT
+
+RETRY_DELAYS = (5, 20, 60)  # seconds to wait before each retry of a failed call
+
+
+def complete(backend, system, text, max_tokens):
+    """backend.complete, retried when the call fails (dropped connection, rate limit)."""
+    for delay in (*RETRY_DELAYS, None):
+        try:
+            return backend.complete(system, text, max_tokens=max_tokens)
+        except BackendError:
+            if delay is None:
+                raise
+            time.sleep(delay)
 
 
 def load_cache(path):
@@ -16,7 +31,7 @@ def save_cache(path, cache):
 def translate(backend, text):
     if not text.strip():
         return ""
-    return backend.complete(SYSTEM_PROMPT, text, max_tokens=4096)
+    return complete(backend, SYSTEM_PROMPT, text, 4096)
 
 
 def translate_blocks(backend, blocks, ctx=("", "")):
@@ -28,7 +43,7 @@ def translate_blocks(backend, blocks, ctx=("", "")):
     if after:
         src += "\n\nContext, start of the next page (do not translate):\n" + after
     for _ in range(2):
-        out = backend.complete(LAYOUT_PROMPT, src, max_tokens=8192)
+        out = complete(backend, LAYOUT_PROMPT, src, 8192)
         parts = re.split(r"(?m)^\[(\d+)\][ \t]*", out)  # ['', '1', 'txt', '2', ...]
         got = {int(parts[k]): parts[k + 1].strip() for k in range(1, len(parts) - 1, 2)}
         if sorted(got) == list(range(1, len(blocks) + 1)):
@@ -36,7 +51,7 @@ def translate_blocks(backend, blocks, ctx=("", "")):
     return [translate(backend, b["text"]).replace("**", "") for b in blocks]
 
 
-def translate_all(backend, idx, pages, layout, ctx, cache, cache_path, redo=()):
+def translate_all(backend, idx, pages, layout, ctx, cache, cache_path, redo=(), progress=None):
     """Translate every page (cached); returns flat-page translations by position.
 
     Layout pages are cached under "L<page>" and return "" here, since they are
@@ -52,10 +67,14 @@ def translate_all(backend, idx, pages, layout, ctx, cache, cache_path, redo=()):
                 cache[key] = translate_blocks(backend, layout[n - 1], ctx[n - 1])
                 save_cache(cache_path, cache)
             translations.append("")
+            if progress:
+                progress("translate", n, len(pages))
             continue
         if key not in cache or i in redo:
             print(f"Translating page {i + 1} ({n}/{len(pages)})...", flush=True)
             cache[key] = translate(backend, text)
             save_cache(cache_path, cache)
         translations.append(cache[key])
+        if progress:
+            progress("translate", n, len(pages))
     return translations

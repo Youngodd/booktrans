@@ -16,7 +16,7 @@ def ocr_page(backend, path, i):
     return backend.ocr_image(img, OCR_PROMPT)
 
 
-def ocr_scanned_pages(backend, book, idx, pages, scanned, cache_path):
+def ocr_scanned_pages(backend, book, idx, pages, scanned, cache_path, progress=None):
     """Fill pages[n] with OCR text for each scanned n; cached and resumable."""
     cache = load_cache(cache_path)
     for k, n in enumerate(scanned, 1):
@@ -26,3 +26,5 @@ def ocr_scanned_pages(backend, book, idx, pages, scanned, cache_path):
             cache[key] = ocr_page(backend, book, idx[n])
             cache_path.write_text(json.dumps(cache, ensure_ascii=False))
         pages[n] = cache[key]
+        if progress:
+            progress("ocr", k, len(scanned))
