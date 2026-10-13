@@ -5,7 +5,7 @@ INK_LEVEL = 150  # after flattening, pixels darker than this (of 255) count as i
 
 
 def ink_layer(page, erase_rects):
-    """PNG bytes of the page's ink on white, with the text in `erase_rects` removed.
+    """JPEG bytes of the page's ink on white, with the text in `erase_rects` removed.
 
     The scan's paper tone and shadows are divided out, so the background turns
     white. The rectangles are the English text that gets redrawn in Chinese;
@@ -40,4 +40,5 @@ def ink_layer(page, erase_rects):
     mask = cv2.dilate(keep[labels].astype(np.uint8), np.ones((3, 3), np.uint8)) > 0
     out = np.full(gray.shape, 255, dtype=np.uint8)
     out[mask] = flat[mask].astype(np.uint8)
-    return cv2.imencode(".png", out)[1].tobytes()
+    # JPEG, not PNG: PDF stores a decoded PNG nearly uncompressed (several MB a page)
+    return cv2.imencode(".jpg", out, [cv2.IMWRITE_JPEG_QUALITY, 90])[1].tobytes()

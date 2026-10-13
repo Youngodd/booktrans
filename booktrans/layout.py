@@ -358,7 +358,8 @@ def render_clean_page(book, page_no, blocks, zh):
         if draw(page, *it, factor[bool(it[0].get("cell"))])[0] < 0:  # shrink to fit
             print("Warning: page %d: a paragraph is too long for its space" % (page_no + 1))
             page.insert_htmlbox(it[3], escape(it[1]), scale_low=0)
-    return doc.tobytes(garbage=3, deflate=True)
+    doc.subset_fonts()  # every htmlbox embeds the whole CJK font; keep only the glyphs used
+    return doc.tobytes(garbage=4, deflate=True)
 
 
 def render_layout_page(book, page_no, blocks, zh):
@@ -423,7 +424,8 @@ def render_layout_page(book, page_no, blocks, zh):
                     page.insert_htmlbox(rect, html, css=css, scale_low=0)
                     break
                 size -= 0.5
-        return doc.tobytes(garbage=3, deflate=True)
+        doc.subset_fonts()
+        return doc.tobytes(garbage=4, deflate=True)
 
 
 def collect_layout(book, idx, skip=()):

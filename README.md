@@ -11,7 +11,8 @@ pip install -r requirements.txt
 ```
 
 The requirements include `opencv-python-headless` (used to clean scanned pages;
-no model or training involved).
+no model or training involved) and `fonttools` (to subset the CJK font embedded
+in each Chinese page, which keeps the output PDF small).
 
 The default backend, `claude-cli`, uses your logged-in [Claude Code](https://claude.com/claude-code)
 CLI (`claude`), so no API key is needed. To use the Anthropic API instead:

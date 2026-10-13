@@ -47,10 +47,10 @@ def test_ink_layer_keeps_lines_and_drops_erased_text():
     import numpy as np
     doc, page = make_page([(30, 100, "erase me please")])
     page.draw_line((30, 200), (250, 200), width=1)
-    png = ink_layer(page, [[25, 88, 140, 104]])
-    img = cv2.imdecode(np.frombuffer(png, np.uint8), cv2.IMREAD_GRAYSCALE)
+    jpg = ink_layer(page, [[25, 88, 140, 104]])
+    img = cv2.imdecode(np.frombuffer(jpg, np.uint8), cv2.IMREAD_GRAYSCALE)
     s = 200 / 72
-    assert img[int(88 * s):int(104 * s), int(25 * s):int(140 * s)].min() == 255  # text gone
+    assert img[int(88 * s):int(104 * s), int(25 * s):int(140 * s)].min() >= 250  # text gone
     assert img[int(199 * s):int(201 * s), int(30 * s):int(250 * s)].min() < 128  # rule kept
 
 
