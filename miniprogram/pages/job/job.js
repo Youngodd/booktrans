@@ -1,6 +1,7 @@
 const api = require('../../utils/api')
+const { zh } = require('../../utils/messages')
 
-const STAGES = { scan: 'Reading the book', ocr: 'Recognising scanned pages', translate: 'Translating', render: 'Building the PDF', done: 'Done' }
+const STAGES = { scan: '正在读取图书', ocr: '正在识别扫描页', translate: '正在翻译', render: '正在生成 PDF', done: '已完成' }
 
 Page({
   data: { job: {}, percent: 0, stageText: '', busy: false, error: '' },
@@ -15,7 +16,8 @@ Page({
     try {
       const job = await api.getJob(this.id)
       const percent = job.total ? Math.round((100 * job.done) / job.total) : 0
-      this.setData({ job, percent, stageText: STAGES[job.stage] || 'Waiting in the queue' })
+      job.error = zh(job.error || '')
+      this.setData({ job, percent, stageText: STAGES[job.stage] || '排队等待中' })
       if (job.state === 'queued' || job.state === 'running') {
         if (!this.gone) this.timer = setTimeout(() => this.poll(), 3000)
       }

@@ -1,38 +1,38 @@
 <view class="wrap">
-  <view class="title">Book Translator</view>
-  <view class="sub">English book in, bilingual PDF out. You use your own API key.</view>
+  <view class="title">图书翻译</view>
+  <view class="sub">上传英文书，生成中英对照 PDF。使用你自己的 API 密钥。</view>
 
   <view class="card">
     <button class="btn plain" bindtap="pickFile" disabled="{{busy}}">
-      {{job ? 'Choose another book' : 'Choose a book from WeChat chat'}}
+      {{job ? '重新选择图书' : '从微信聊天中选择图书'}}
     </button>
     <view class="sub" wx:if="{{!job}}" style="margin-top:16rpx">
-      PDF, EPUB or TXT. Send the file to "File Transfer" first, then pick it here.
+      支持 PDF、EPUB、TXT。请先把文件发送到“文件传输助手”，再在这里选择。
     </view>
     <view wx:if="{{job}}" style="margin-top:20rpx">
       <view>{{job.filename}}</view>
-      <view class="sub">{{job.pages_total}} pages</view>
+      <view class="sub">共 {{job.pages_total}} 页</view>
     </view>
   </view>
 
   <view class="card" wx:if="{{job}}">
-    <view class="label">Supplier</view>
+    <view class="label">模型供应商</view>
     <picker range="{{providers}}" range-key="name" value="{{providerIndex}}" bindchange="onProvider">
       <view class="input">{{providers[providerIndex].name}}</view>
     </picker>
-    <view class="label">API key (used for this job only, never stored)</view>
+    <view class="label">API 密钥（仅用于本次任务，不会保存）</view>
     <input class="input" password value="{{apiKey}}" bindinput="onKey" placeholder="{{providers[providerIndex].hint}}" />
-    <view class="label">Pages (optional, e.g. 1-20)</view>
-    <input class="input" value="{{pages}}" bindinput="onPages" placeholder="whole book" />
-    <view class="label" wx:if="{{emailEnabled}}">Email the PDF to (optional)</view>
+    <view class="label">页码范围（可选，例如 1-20）</view>
+    <input class="input" value="{{pages}}" bindinput="onPages" placeholder="整本书" />
+    <view class="label" wx:if="{{emailEnabled}}">把 PDF 发送到邮箱（可选）</view>
     <input class="input" wx:if="{{emailEnabled}}" type="text" value="{{email}}" bindinput="onEmail" placeholder="you@example.com" />
     <view style="margin-top:20rpx">
-      <switch checked="{{preview}}" bindchange="onPreview"/> Try only the first 3 pages
+      <switch checked="{{preview}}" bindchange="onPreview"/> 只试译前 3 页
     </view>
     <view style="margin-top:12rpx">
-      <switch checked="{{ocr}}" bindchange="onOcr"/> Scanned book (OCR)
+      <switch checked="{{ocr}}" bindchange="onOcr"/> 扫描版图书（OCR 识别）
     </view>
-    <button class="btn" bindtap="start" disabled="{{busy}}">{{busy ? 'Working...' : 'Start translating'}}</button>
+    <button class="btn" bindtap="start" disabled="{{busy}}">{{busy ? '处理中...' : '开始翻译'}}</button>
   </view>
 
   <view class="error" wx:if="{{error}}">{{error}}</view>

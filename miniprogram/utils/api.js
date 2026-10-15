@@ -4,6 +4,8 @@
 // MP console -> Development settings -> Server domain (request, uploadFile, downloadFile).
 const BASE_URL = 'http://127.0.0.1:8000'
 
+const { zh } = require('./messages')
+
 let token = ''
 
 function login() {
@@ -12,13 +14,13 @@ function login() {
       success: ({ code }) => wx.request({
         url: BASE_URL + '/api/login', method: 'POST', data: { code },
         success: (r) => {
-          if (r.statusCode !== 200) return reject(new Error(r.data.detail || 'Login failed'))
+          if (r.statusCode !== 200) return reject(new Error(zh(r.data.detail || '登录失败')))
           token = r.data.token
           resolve(r.data)
         },
-        fail: () => reject(new Error('Cannot reach the server')),
+        fail: () => reject(new Error('无法连接服务器')),
       }),
-      fail: () => reject(new Error('WeChat login failed')),
+      fail: () => reject(new Error('微信登录失败')),
     })
   })
 }
@@ -35,7 +37,7 @@ async function authed(fn) {
   if (r.statusCode >= 400) {
     let detail = ''
     try { detail = (typeof r.data === 'string' ? JSON.parse(r.data) : r.data).detail } catch (e) {}
-    throw new Error(detail || 'Request failed (' + r.statusCode + ')')
+    throw new Error(zh(detail || '请求失败（' + r.statusCode + '）'))
   }
   return typeof r.data === 'string' ? JSON.parse(r.data) : r.data
 }
@@ -45,14 +47,14 @@ const header = () => ({ Authorization: 'Bearer ' + token })
 function request(method, path, data) {
   return authed(() => new Promise((resolve, reject) => wx.request({
     url: BASE_URL + path, method, data, header: header(),
-    success: resolve, fail: () => reject(new Error('Cannot reach the server')),
+    success: resolve, fail: () => reject(new Error('无法连接服务器')),
   })))
 }
 
 function upload(filePath, name) {
   return authed(() => new Promise((resolve, reject) => wx.uploadFile({
     url: BASE_URL + '/api/jobs', filePath, name: 'file', header: header(),
-    success: resolve, fail: () => reject(new Error('Upload failed')),
+    success: resolve, fail: () => reject(new Error('上传失败')),
   })))
 }
 
@@ -60,8 +62,8 @@ function upload(filePath, name) {
 function download(jobId) {
   return new Promise((resolve, reject) => wx.downloadFile({
     url: BASE_URL + '/api/jobs/' + jobId + '/download', header: header(),
-    success: (r) => r.statusCode === 200 ? resolve(r.tempFilePath) : reject(new Error('Download failed')),
-    fail: () => reject(new Error('Download failed')),
+    success: (r) => r.statusCode === 200 ? resolve(r.tempFilePath) : reject(new Error('下载失败')),
+    fail: () => reject(new Error('下载失败')),
   }))
 }
 

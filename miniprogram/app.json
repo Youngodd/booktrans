@@ -1,7 +1,7 @@
 {
   "pages": ["pages/index/index", "pages/job/job"],
   "window": {
-    "navigationBarTitleText": "Book Translator",
+    "navigationBarTitleText": "图书翻译",
     "navigationBarBackgroundColor": "#faf7f2",
     "navigationBarTextStyle": "black",
     "backgroundColor": "#faf7f2"

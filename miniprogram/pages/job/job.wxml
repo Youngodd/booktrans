@@ -1,26 +1,26 @@
 <view class="wrap">
   <view class="title">{{job.filename}}</view>
-  <view class="sub">Pages {{job.range}}</view>
+  <view class="sub">页码 {{job.range}}</view>
 
   <view class="card" wx:if="{{job.state === 'queued' || job.state === 'running'}}">
     <view>{{stageText}}</view>
     <view class="bar"><view style="width:{{percent}}%"></view></view>
-    <view class="sub">{{job.done}} / {{job.total}}. You can leave this page; the job keeps running.</view>
+    <view class="sub">{{job.done}} / {{job.total}}。可以离开此页，任务会在后台继续。</view>
   </view>
 
   <view class="card" wx:if="{{job.state === 'done'}}">
-    <view>Done.</view>
-    <view class="sub" wx:if="{{job.email_state === 'sent'}}">The PDF was also emailed to you.</view>
-    <view class="error" wx:if="{{job.email_state === 'failed'}}">The email could not be sent; download it here.</view>
-    <button class="btn" bindtap="open" disabled="{{busy}}">Open PDF</button>
-    <button class="btn plain" bindtap="share" disabled="{{busy}}">Send to a chat (to save it)</button>
+    <view>翻译完成。</view>
+    <view class="sub" wx:if="{{job.email_state === 'sent'}}">PDF 也已发送到你的邮箱。</view>
+    <view class="error" wx:if="{{job.email_state === 'failed'}}">邮件发送失败，请在这里下载。</view>
+    <button class="btn" bindtap="open" disabled="{{busy}}">打开 PDF</button>
+    <button class="btn plain" bindtap="share" disabled="{{busy}}">发送到聊天（便于保存）</button>
   </view>
 
   <view class="card" wx:if="{{job.state === 'failed'}}">
     <view class="error">{{job.error}}</view>
-    <button class="btn plain" bindtap="back">Back</button>
+    <button class="btn plain" bindtap="back">返回</button>
   </view>
 
   <view class="error" wx:if="{{error}}">{{error}}</view>
-  <button class="btn plain" wx:if="{{job.state === 'done' || job.state === 'failed'}}" bindtap="remove">Delete from server</button>
+  <button class="btn plain" wx:if="{{job.state === 'done' || job.state === 'failed'}}" bindtap="remove">从服务器删除</button>
 </view>

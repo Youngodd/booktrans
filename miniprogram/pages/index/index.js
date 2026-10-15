@@ -2,10 +2,10 @@ const api = require('../../utils/api')
 
 // Suppliers the server accepts (bring your own key).
 const PROVIDERS = [
-  { id: 'qwen', name: 'Qwen (Alibaba, China)', hint: 'sk-...' },
+  { id: 'qwen', name: '通义千问 Qwen（国内）', hint: 'sk-...' },
   { id: 'deepseek', name: 'DeepSeek', hint: 'sk-...' },
-  { id: 'qwen-intl', name: 'Qwen (international)', hint: 'sk-...' },
-  { id: 'api', name: 'Claude (Anthropic)', hint: 'sk-ant-...' },
+  { id: 'qwen-intl', name: '通义千问 Qwen（国际版）', hint: 'sk-...' },
+  { id: 'api', name: 'Claude（Anthropic）', hint: 'sk-ant-...' },
 ]
 
 Page({
@@ -27,12 +27,12 @@ Page({
         count: 1, type: 'file', extension: ['pdf', 'epub', 'txt'],
       })
       this.setData({ busy: true, error: '' })
-      wx.showLoading({ title: 'Uploading...' })
+      wx.showLoading({ title: '上传中...' })
       const login = await api.login()
       const job = await api.upload(tempFiles[0].path, tempFiles[0].name)
       this.setData({ job, emailEnabled: login.email_enabled })
     } catch (e) {
-      if (!/cancel/.test(e.errMsg || '')) this.setData({ error: e.message || 'Could not add the file' })
+      if (!/cancel/.test(e.errMsg || '')) this.setData({ error: e.message || '无法添加该文件' })
     } finally {
       wx.hideLoading()
       this.setData({ busy: false })
