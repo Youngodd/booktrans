@@ -1,0 +1,10 @@
+[
+  {
+    "calls": 6,
+    "input_tokens": 12,
+    "output_tokens": 4019,
+    "cache_creation_input_tokens": 15739,
+    "cache_read_input_tokens": 8555,
+    "cost_usd": 0.1040255
+  }
+]

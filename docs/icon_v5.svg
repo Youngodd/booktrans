@@ -1,0 +1,35 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 144 144" width="144" height="144">
+  <defs>
+    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#4F46E5"/>
+      <stop offset="100%" style="stop-color:#7C3AED"/>
+    </linearGradient>
+  </defs>
+  
+  <!-- Background rounded square -->
+  <rect width="144" height="144" rx="28" fill="url(#bg)"/>
+  
+  <!-- Open book: fills most of the canvas -->
+  <path d="M16 16 L72 6 L72 108 L16 118 Z" fill="white" opacity="0.96"/>
+  <path d="M128 16 L72 6 L72 108 L128 118 Z" fill="white" opacity="0.88"/>
+  
+  <!-- Book spine -->
+  <line x1="72" y1="6" x2="72" y2="108" stroke="#4F46E5" stroke-width="3" opacity="0.5"/>
+  
+  <!-- Left page: EN label + text lines (gray) -->
+  <text x="38" y="50" font-family="Helvetica, Arial, sans-serif" font-size="22" font-weight="700" fill="#8899AA" opacity="0.6" text-anchor="middle">EN</text>
+  <rect x="28" y="64" width="32" height="3" rx="1.5" fill="#8899AA" opacity="0.45"/>
+  <rect x="28" y="74" width="28" height="3" rx="1.5" fill="#8899AA" opacity="0.35"/>
+  <rect x="28" y="84" width="30" height="3" rx="1.5" fill="#8899AA" opacity="0.3"/>
+  <rect x="28" y="94" width="24" height="3" rx="1.5" fill="#8899AA" opacity="0.25"/>
+  
+  <!-- Right page: CN label + text lines (purple) -->
+  <text x="100" y="50" font-family="Helvetica, Arial, sans-serif" font-size="22" font-weight="700" fill="#4F46E5" opacity="0.6" text-anchor="middle">CN</text>
+  <rect x="82" y="64" width="32" height="3" rx="1.5" fill="#4F46E5" opacity="0.45"/>
+  <rect x="82" y="74" width="28" height="3" rx="1.5" fill="#4F46E5" opacity="0.35"/>
+  <rect x="82" y="84" width="30" height="3" rx="1.5" fill="#4F46E5" opacity="0.3"/>
+  <rect x="82" y="94" width="24" height="3" rx="1.5" fill="#4F46E5" opacity="0.25"/>
+  
+  <!-- App name at bottom -->
+  <text x="72" y="136" font-family="PingFang SC, Heiti SC, STHeiti, sans-serif" font-size="20" font-weight="700" fill="white" text-anchor="middle" letter-spacing="6">双语书</text>
+</svg>
