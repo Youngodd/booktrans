@@ -88,7 +88,8 @@ def preview_range(pages, total):
     return f"{idx[0] + 1}-{idx[min(PREVIEW_PAGES, len(idx)) - 1] + 1}"
 
 
-def run_job(root, job_id, api_key, backend_factory=default_backend, provider="api"):
+def run_job(root, job_id, api_key, backend_factory=default_backend, provider="api",
+            send_mail=None):
     """Run one job to the end. Executed in a worker process (or thread, in tests)."""
     from ..pipeline import translate_book
     store = JobStore(root)
@@ -110,6 +111,13 @@ def run_job(root, job_id, api_key, backend_factory=default_backend, provider="ap
                        progress=progress)
         store.write(job_id, state="done", stage="done", usage=translator.usage.as_dict(),
                     finished=time.time())
+        if send_mail and job.get("email"):
+            try:
+                stem = Path(job["filename"]).stem or "book"
+                send_mail(job["email"], path / "output.pdf", f"{stem}_bilingual.pdf")
+                store.write(job_id, email_state="sent")
+            except Exception:  # the PDF is still downloadable; just record the failure
+                store.write(job_id, email_state="failed")
     except BaseException as e:  # report every failure to the browser, never lose the job
         msg = str(e).replace(api_key, "***") if api_key else str(e)
         if not isinstance(e, (BackendError, ValueError)):

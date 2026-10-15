@@ -8,3 +8,5 @@
 
 __pycache__/
 .pytest_cache/
+data/
+miniprogram/project.private.config.json

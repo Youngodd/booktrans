@@ -64,3 +64,20 @@ Mostly yes. A **personal (individual) Mini Program account can't use WeChat Pay*
 To charge per book or per page, the simplest path is to register a **个体工商户**, register the mini program under it, and bind WeChat Pay. To test the idea first, start with a personal or test account for development and add payment later.
 
 **Open question:** are you based in mainland China? Eligibility for a 个体工商户 depends on that.
+
+
+## Implementation: the mini program in this repo
+
+- `miniprogram/` is the native mini program (open it in WeChat DevTools, put your AppID in `project.config.json`).
+- Login: `wx.login` -> `POST /api/login` -> the server asks WeChat for the openid (`WX_APPID`, `WX_SECRET`) and returns a signed token. Each user's jobs are private to their openid.
+- Bring your own key: the user picks a supplier (Qwen, DeepSeek, Claude) and types a key; it is passed to the worker in memory only.
+- Email: set `SMTP_*` in `.env`. The user may enter an address; the finished PDF is attached (over 20 MB it sends a note instead). The PDF can also be opened or shared from the result page.
+- Books come from `wx.chooseMessageFile`, which can only pick files sent in a WeChat chat (e.g. File Transfer).
+
+### Testing without a domain
+1. Run the server locally: `BOOKTRANS_DEV_LOGIN=1 python -m booktrans.web` (fake login, no AppSecret needed).
+2. In DevTools: Details -> Local settings -> tick "Do not verify valid domain names, web-view, TLS version and HTTPS certificate".
+3. Real-device preview with this setting works only through DevTools' debug mode (vConsole on). Release builds need a real HTTPS domain.
+
+### Before release
+Get a domain, ICP-file it, point it at the server (Caddy gives HTTPS), then add it to the request, uploadFile and downloadFile domain lists and change `BASE_URL` in `miniprogram/utils/api.js`. Also add the privacy declaration in the MP console.

@@ -1,0 +1,26 @@
+<view class="wrap">
+  <view class="title">{{job.filename}}</view>
+  <view class="sub">Pages {{job.range}}</view>
+
+  <view class="card" wx:if="{{job.state === 'queued' || job.state === 'running'}}">
+    <view>{{stageText}}</view>
+    <view class="bar"><view style="width:{{percent}}%"></view></view>
+    <view class="sub">{{job.done}} / {{job.total}}. You can leave this page; the job keeps running.</view>
+  </view>
+
+  <view class="card" wx:if="{{job.state === 'done'}}">
+    <view>Done.</view>
+    <view class="sub" wx:if="{{job.email_state === 'sent'}}">The PDF was also emailed to you.</view>
+    <view class="error" wx:if="{{job.email_state === 'failed'}}">The email could not be sent; download it here.</view>
+    <button class="btn" bindtap="open" disabled="{{busy}}">Open PDF</button>
+    <button class="btn plain" bindtap="share" disabled="{{busy}}">Send to a chat (to save it)</button>
+  </view>
+
+  <view class="card" wx:if="{{job.state === 'failed'}}">
+    <view class="error">{{job.error}}</view>
+    <button class="btn plain" bindtap="back">Back</button>
+  </view>
+
+  <view class="error" wx:if="{{error}}">{{error}}</view>
+  <button class="btn plain" wx:if="{{job.state === 'done' || job.state === 'failed'}}" bindtap="remove">Delete from server</button>
+</view>

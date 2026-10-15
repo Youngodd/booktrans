@@ -173,3 +173,67 @@ def test_provider_is_checked_and_passed_to_the_backend(make_client, text_pdf):
     assert c.post(url, json={"api_key": "short", "provider": "qwen"}).status_code == 400
     assert c.post(url, json={"api_key": "sk-abcdefgh", "provider": "qwen"}).status_code == 200
     assert seen == ["qwen"]
+
+
+def mp_client(make_client, sent=None, **kw):
+    """A client whose WeChat login code is used as the openid, with a fake mailer."""
+    def mail(to, path, name):
+        if sent is not None:
+            sent.append((to, name, path.read_bytes()[:4]))
+    return make_client(secret="s3cret", openid_lookup=lambda code: code, send_mail=mail, **kw)
+
+
+def login(client, code):
+    return {"Authorization": "Bearer " + client.post("/api/login", json={"code": code}).json()["token"]}
+
+
+def test_login_rejects_unknown_codes(make_client):
+    from booktrans.web import auth
+
+    def deny(code):
+        raise auth.LoginError("nope")
+    r = make_client(secret="s", openid_lookup=deny).post("/api/login", json={"code": "x"})
+    assert r.status_code == 401
+
+
+def test_tokens_are_signed_and_expire():
+    from booktrans.web import auth
+    t = auth.make_token("k", "openid-1", now=1000)
+    assert auth.read_token("k", t, now=2000) == "openid-1"
+    assert auth.read_token("other", t, now=2000) is None
+    assert auth.read_token("k", t, now=1000 + 31 * 86400) is None
+    assert auth.read_token("k", "garbage") is None
+
+
+def test_jobs_are_private_to_their_owner(make_client, text_pdf):
+    c = mp_client(make_client)
+    alice, bob = login(c, "alice"), login(c, "bob")
+    job = c.post("/api/jobs", files={"file": ("b.pdf", text_pdf.read_bytes())}, headers=alice).json()
+    url = f"/api/jobs/{job['id']}"
+    assert c.get(url, headers=alice).status_code == 200
+    assert c.get(url, headers=bob).status_code == 404
+    assert c.get(url).status_code == 404
+    assert c.delete(url, headers=bob).status_code == 404
+
+
+def test_finished_job_is_emailed(make_client, text_pdf):
+    sent = []
+    c = mp_client(make_client, sent)
+    h = login(c, "alice")
+    job = c.post("/api/jobs", files={"file": ("b.pdf", text_pdf.read_bytes())}, headers=h).json()
+    c.post(f"/api/jobs/{job['id']}/start", json={"api_key": KEY, "email": "me@example.com"}, headers=h)
+    end = time.time() + 20
+    while time.time() < end:
+        j = c.get(f"/api/jobs/{job['id']}", headers=h).json()
+        if j["email_state"]:
+            break
+        time.sleep(0.05)
+    assert j["state"] == "done" and j["email_state"] == "sent"
+    assert sent == [("me@example.com", "b_bilingual.pdf", b"%PDF")]
+
+
+def test_bad_email_is_rejected(make_client, text_pdf):
+    c = mp_client(make_client)
+    job = upload(c, "b.pdf", text_pdf.read_bytes()).json()
+    r = c.post(f"/api/jobs/{job['id']}/start", json={"api_key": KEY, "email": "nope"})
+    assert r.status_code == 400

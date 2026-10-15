@@ -1,0 +1,11 @@
+{
+  "pages": ["pages/index/index", "pages/job/job"],
+  "window": {
+    "navigationBarTitleText": "Book Translator",
+    "navigationBarBackgroundColor": "#faf7f2",
+    "navigationBarTextStyle": "black",
+    "backgroundColor": "#faf7f2"
+  },
+  "style": "v2",
+  "sitemapLocation": "sitemap.json"
+}
