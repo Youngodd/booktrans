@@ -237,3 +237,8 @@ def test_bad_email_is_rejected(make_client, text_pdf):
     job = upload(c, "b.pdf", text_pdf.read_bytes()).json()
     r = c.post(f"/api/jobs/{job['id']}/start", json={"api_key": KEY, "email": "nope"})
     assert r.status_code == 400
+
+
+def test_whoami_shows_only_wechat_headers(make_client):
+    r = make_client().get("/api/whoami", headers={"X-WX-OPENID": "o123", "Authorization": "secret"})
+    assert r.json() == {"wx_headers": {"x-wx-openid": "o123"}}

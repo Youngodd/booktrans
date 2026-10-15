@@ -6,7 +6,7 @@ import time
 from concurrent.futures import ProcessPoolExecutor
 from pathlib import Path
 
-from fastapi import FastAPI, File, Header, HTTPException, UploadFile
+from fastapi import FastAPI, File, Header, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
@@ -99,6 +99,12 @@ def create_app(data_dir=None, *, executor=None, backend_factory=jobs.default_bac
         except auth.LoginError as e:
             raise HTTPException(401, str(e))
         return {"token": auth.make_token(secret, openid), "email_enabled": mailer.configured()}
+
+    @app.get("/api/whoami")
+    def whoami(request: Request):
+        """Show which WeChat identity headers Cloud Hosting adds (to check how login can work there)."""
+        wx = {k: v for k, v in request.headers.items() if k.lower().startswith("x-wx-")}
+        return {"wx_headers": wx}
 
     @app.get("/healthz")
     def healthz():
