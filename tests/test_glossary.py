@@ -131,3 +131,8 @@ def test_pipeline_builds_saves_and_applies_the_glossary(tmp_path):
     saved = glossary.load(out.with_suffix(".glossary.json"))
     assert saved["Boyle"] == "波义耳" and saved["Newton"] == "牛顿"
     translate_book(book, tmp_path / "again.pdf", b, auto_glossary=False)  # no new glossary call
+
+
+def test_accented_names_are_kept_whole():
+    assert [t for t, _ in glossary.candidates(["See Kekulé. Ask Kekulé."])] == ["Kekulé"]
+    assert glossary.mentioned("Kekulé", "Kekulé's ring") and not glossary.mentioned("Kekul", "Kekulé")

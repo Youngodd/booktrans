@@ -12,7 +12,8 @@ from collections import defaultdict
 from .backends.base import AuthError, BackendError
 from .prompts import GLOSSARY_NOTE, GLOSSARY_PROMPT
 
-WORD = r"[A-Z][A-Za-z]*(?:[-'’][A-Za-z]+)*"
+LOWER = r"[^\W\d_]"  # any letter, accented ones included (Kekulé)
+WORD = rf"[A-ZÀ-ÖØ-Þ]{LOWER}*(?:[-'’]{LOWER}+)*"
 PHRASE = re.compile(rf"\b{WORD}(?:\s+(?:(?:of|de|von|van|der|la|du)\s+)?{WORD})*")
 SENTENCE_START = re.compile(r"(?:^|[.!?:]['\"”’)]*\s+)$")
 STOP = {
@@ -92,7 +93,7 @@ def save(path, glossary):
 
 
 def mentioned(term, text):
-    return re.search(rf"(?<![A-Za-z]){re.escape(term)}(?![A-Za-z])", text) is not None
+    return re.search(rf"(?<!{LOWER}){re.escape(term)}(?!{LOWER})", text) is not None
 
 
 def build(backend, all_texts, needed_texts, glossary, progress=None):
