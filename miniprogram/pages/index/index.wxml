@@ -36,4 +36,9 @@
   </view>
 
   <view class="error" wx:if="{{error}}">{{error}}</view>
+
+  <view class="sub" style="margin-top:32rpx;text-align:center">
+    请只上传你有权使用的图书。
+    <navigator url="/pages/privacy/privacy" style="display:inline;color:#8a3b1e">隐私说明</navigator>
+  </view>
 </view>

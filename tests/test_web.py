@@ -239,11 +239,6 @@ def test_bad_email_is_rejected(make_client, text_pdf):
     assert r.status_code == 400
 
 
-def test_whoami_shows_only_wechat_headers(make_client):
-    r = make_client().get("/api/whoami", headers={"X-WX-OPENID": "o123", "Authorization": "secret"})
-    assert r.json() == {"wx_headers": {"x-wx-openid": "o123"}}
-
-
 class FakeCloud:
     """Stands in for WeChat cloud storage: a dict of file id -> bytes."""
     from booktrans.web.wxcloud import CloudError
@@ -310,3 +305,23 @@ def test_from_storage_errors(make_client):
     assert c.post("/api/jobs/from-storage", json={"file_id": "x", "filename": "a.exe"}, headers=h).status_code == 400
     assert c.post("/api/jobs/from-storage", json={"file_id": "x", "filename": "a.pdf"}, headers=h).status_code == 400
     assert c.post("/api/jobs/from-storage", json={"file_id": "x", "filename": "a.pdf"}).status_code == 400
+
+
+def test_expired_job_also_drops_its_stored_pdf(make_client, text_pdf, monkeypatch):
+    import os
+    monkeypatch.setenv("BOOKTRANS_TRUST_WX_HEADERS", "1")
+    cloud = FakeCloud({"cloud://book": text_pdf.read_bytes()})
+    c = make_client(cloud=cloud)
+    h = {"X-WX-OPENID": "alice", "X-WX-ENV": "env1"}
+    job = c.post("/api/jobs/from-storage", json={"file_id": "cloud://book", "filename": "b.pdf"}, headers=h).json()
+    url = f"/api/jobs/{job['id']}"
+    c.post(url + "/start", json={"api_key": KEY}, headers=h)
+    end = time.time() + 20
+    while c.get(url, headers=h).json()["state"] != "done" and time.time() < end:
+        time.sleep(0.05)
+    file_id = c.get(url + "/result", headers=h).json()["file_id"]
+    store = c.app.state.store
+    for p in store.dir(job["id"]).iterdir():
+        os.utime(p, (0, 0))
+    assert store.cleanup(1, lambda j: cloud.delete("env1", [j["result_file_id"]])) == 1
+    assert file_id in cloud.deleted

@@ -64,13 +64,18 @@ class JobStore:
         if path:
             shutil.rmtree(path, ignore_errors=True)
 
-    def cleanup(self, max_age_s):
-        """Delete jobs not touched for max_age_s seconds; returns how many."""
+    def cleanup(self, max_age_s, on_expire=None):
+        """Delete jobs not touched for max_age_s seconds; returns how many.
+
+        on_expire(job) is called with each job's data just before its folder is removed.
+        """
         now, removed = time.time(), 0
         for path in self.root.iterdir():
             if path.is_dir() and ID_RE.match(path.name):
                 newest = max((p.stat().st_mtime for p in path.iterdir()), default=0)
                 if now - newest > max_age_s:
+                    if on_expire:
+                        on_expire(self.read(path.name) or {})
                     shutil.rmtree(path, ignore_errors=True)
                     removed += 1
         return removed

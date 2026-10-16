@@ -1,5 +1,9 @@
 {
-  "pages": ["pages/index/index", "pages/job/job"],
+  "pages": [
+    "pages/index/index",
+    "pages/job/job",
+    "pages/privacy/privacy"
+  ],
   "window": {
     "navigationBarTitleText": "图书翻译",
     "navigationBarBackgroundColor": "#faf7f2",

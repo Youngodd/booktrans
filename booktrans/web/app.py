@@ -68,15 +68,24 @@ def create_app(data_dir=None, *, executor=None, backend_factory=jobs.default_bac
     app = FastAPI(title="Book translator", docs_url=None, redoc_url=None)
     app.state.store = store
 
+    def drop_stored_result(job):
+        """An expired job's finished PDF also lives in cloud storage; remove it there too."""
+        if job.get("result_file_id"):
+            cloud.delete(job.get("env") or os.environ.get("WX_CLOUD_ENV", ""),
+                         [job["result_file_id"]])
+
     @app.on_event("startup")
     async def _cleanup():
         """Delete expired jobs now and then every hour while the server runs."""
-        store.cleanup(retention_hours * 3600)
+        def sweep():
+            store.cleanup(retention_hours * 3600, drop_stored_result)
+
+        sweep()
 
         async def hourly():
             while True:
                 await asyncio.sleep(3600)
-                await asyncio.to_thread(store.cleanup, retention_hours * 3600)
+                await asyncio.to_thread(sweep)
         app.state.cleanup_task = asyncio.create_task(hourly())
 
     trust_wx = os.environ.get("BOOKTRANS_TRUST_WX_HEADERS") == "1"
@@ -113,12 +122,6 @@ def create_app(data_dir=None, *, executor=None, backend_factory=jobs.default_bac
     @app.get("/api/config")
     def config():
         return {"email_enabled": mailer.configured()}
-
-    @app.get("/api/whoami")
-    def whoami(request: Request):
-        """Show which WeChat identity headers Cloud Hosting adds (to check how login can work there)."""
-        wx = {k: v for k, v in request.headers.items() if k.lower().startswith("x-wx-")}
-        return {"wx_headers": wx}
 
     @app.get("/healthz")
     def healthz():
@@ -236,22 +239,6 @@ def create_app(data_dir=None, *, executor=None, backend_factory=jobs.default_bac
         stem = Path(job["filename"]).stem or "book"
         return {"file_id": job["result_file_id"], "filename": f"{stem}_bilingual.pdf"}
 
-    @app.get("/api/storage-probe")
-    def storage_probe(request: Request):
-        """Round-trip a tiny file through cloud storage (to check the setup after deploying)."""
-        env = cloud_env(request)
-        tmp = Path(data_dir) / "probe.txt"
-        tmp.parent.mkdir(parents=True, exist_ok=True)
-        tmp.write_text("probe")
-        try:
-            file_id = cloud.upload(env, tmp, f"probe/{secrets.token_hex(8)}.txt")
-            back = Path(data_dir) / "probe.back"
-            cloud.download(env, file_id, back, 1024)
-            cloud.delete(env, [file_id])
-            return {"ok": back.read_text() == "probe", "file_id": file_id}
-        except cloud.CloudError as e:
-            return {"ok": False, "error": str(e)}
-
     @app.get("/api/jobs/{job_id}/download")
     def download(job_id: str, viewer: str = Depends(who)):
         job = get_job(job_id, viewer)
@@ -268,8 +255,7 @@ def create_app(data_dir=None, *, executor=None, backend_factory=jobs.default_bac
         job = get_job(job_id, viewer)
         if job["state"] in ACTIVE:
             raise HTTPException(409, "Wait for the job to finish before deleting it.")
-        if job.get("result_file_id"):
-            cloud.delete(job.get("env") or os.environ.get("WX_CLOUD_ENV", ""), [job["result_file_id"]])
+        drop_stored_result(job)
         store.delete(job_id)
         return {"deleted": True}
 

@@ -1,0 +1,27 @@
+<view class="wrap">
+  <view class="title">隐私说明与使用须知</view>
+  <view class="sub">更新日期：2026 年 10 月</view>
+
+  <view class="card">
+    <view class="label">我们收集和处理什么</view>
+    <view>1. 你上传的图书文件（PDF、EPUB、TXT）：仅用于生成你要的中英对照 PDF。</view>
+    <view>2. 你填写的 API 密钥：只在本次翻译任务运行期间保存在内存中，不写入磁盘，也不会记录。</view>
+    <view>3. 微信用户标识（openid）：用来保证只有你自己能查看和下载你的任务。</view>
+    <view>4. 翻译所需的文字内容会发送给你选择的模型供应商（通义千问 Qwen、DeepSeek 或 Claude），由其按各自的条款处理。</view>
+  </view>
+
+  <view class="card">
+    <view class="label">保存多久</view>
+    <view>上传的图书在读取后会立即从云存储删除，服务器上的副本和生成的 PDF 在 24 小时后自动删除。你也可以在结果页点击“从服务器删除”立即删除。</view>
+  </view>
+
+  <view class="card">
+    <view class="label">版权提示</view>
+    <view>请只上传你拥有合法使用权的图书，例如自己的文档、已进入公有领域的作品，或在授权范围内用于个人学习的内容。生成的译文仅供个人学习使用，请勿传播或商用。</view>
+  </view>
+
+  <view class="card">
+    <view class="label">我们不会</view>
+    <view>不会出售你的数据，不会把你的图书或译文用于训练模型，也不会向其他用户展示你的内容。</view>
+  </view>
+</view>
