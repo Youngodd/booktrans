@@ -6,13 +6,13 @@ import time
 from concurrent.futures import ProcessPoolExecutor
 from pathlib import Path
 
-from fastapi import FastAPI, File, Header, HTTPException, Request, UploadFile
+from fastapi import Depends, FastAPI, File, Header, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
 from ..pipeline import total_pages
 from ..readers import parse_range
-from . import auth, jobs, mailer
+from . import auth, jobs, mailer, wxcloud
 from .jobs import JobStore
 
 STATIC = Path(__file__).parent / "static"
@@ -31,6 +31,11 @@ class StartRequest(BaseModel):
     email: str = ""
 
 
+class StorageUpload(BaseModel):
+    file_id: str
+    filename: str
+
+
 class LoginRequest(BaseModel):
     code: str
 
@@ -42,7 +47,7 @@ def _setting(value, env, default):
 
 def create_app(data_dir=None, *, executor=None, backend_factory=jobs.default_backend,
                max_upload_mb=None, max_pages=None, retention_hours=None, secret=None,
-               openid_lookup=auth.wechat_openid, send_mail=mailer.send_pdf):
+               openid_lookup=auth.wechat_openid, send_mail=mailer.send_pdf, cloud=wxcloud):
     """Build the app. `executor` runs jobs (default: a pool of worker processes).
 
     Mini program users log in with `POST /api/login` and send the returned token as
@@ -74,14 +79,19 @@ def create_app(data_dir=None, *, executor=None, backend_factory=jobs.default_bac
                 await asyncio.to_thread(store.cleanup, retention_hours * 3600)
         app.state.cleanup_task = asyncio.create_task(hourly())
 
-    def viewer(authorization):
-        """The openid of the logged-in mini program user, or None."""
+    trust_wx = os.environ.get("BOOKTRANS_TRUST_WX_HEADERS") == "1"
+
+    def who(authorization: str = Header(None), x_wx_openid: str = Header(None)):
+        """The caller's openid: from the header Cloud Hosting adds (only when trusted, i.e.
+        the service is not reachable from the public internet), else from a login token."""
+        if trust_wx and x_wx_openid:
+            return x_wx_openid
         scheme, _, token = (authorization or "").partition(" ")
         return auth.read_token(secret, token) if scheme.lower() == "bearer" else None
 
-    def get_job(job_id, authorization=None):
+    def get_job(job_id, viewer=None):
         job = store.read(job_id)
-        if job is not None and job.get("owner") and job["owner"] != viewer(authorization):
+        if job is not None and job.get("owner") and job["owner"] != viewer:
             job = None  # someone else's job looks the same as a missing one
         if job is None:
             raise HTTPException(404, "Unknown job (it may have been deleted).")
@@ -100,6 +110,10 @@ def create_app(data_dir=None, *, executor=None, backend_factory=jobs.default_bac
             raise HTTPException(401, str(e))
         return {"token": auth.make_token(secret, openid), "email_enabled": mailer.configured()}
 
+    @app.get("/api/config")
+    def config():
+        return {"email_enabled": mailer.configured()}
+
     @app.get("/api/whoami")
     def whoami(request: Request):
         """Show which WeChat identity headers Cloud Hosting adds (to check how login can work there)."""
@@ -115,12 +129,12 @@ def create_app(data_dir=None, *, executor=None, backend_factory=jobs.default_bac
         return FileResponse(STATIC / "index.html", headers={"Cache-Control": "no-store"})
 
     @app.post("/api/jobs")
-    async def upload(file: UploadFile = File(...), authorization: str = Header(None)):
+    async def upload(file: UploadFile = File(...), viewer: str = Depends(who)):
         ext = Path(file.filename or "").suffix.lower()
         if ext not in EXTENSIONS:
             raise HTTPException(400, "Upload a .pdf, .epub or .txt file.")
         job_id = store.new(file.filename, ocr=False, range="", pages_total=0,
-                           owner=viewer(authorization) or "")
+                           owner=viewer or "")
         path = store.dir(job_id) / ("input" + ext)
         size = 0
         with open(path, "wb") as f:
@@ -139,12 +153,12 @@ def create_app(data_dir=None, *, executor=None, backend_factory=jobs.default_bac
         return public(store.read(job_id))
 
     @app.get("/api/jobs/{job_id}")
-    def status(job_id: str, authorization: str = Header(None)):
-        return public(get_job(job_id, authorization))
+    def status(job_id: str, viewer: str = Depends(who)):
+        return public(get_job(job_id, viewer))
 
     @app.post("/api/jobs/{job_id}/start")
-    def start(job_id: str, req: StartRequest, authorization: str = Header(None)):
-        job = get_job(job_id, authorization)
+    def start(job_id: str, req: StartRequest, viewer: str = Depends(who)):
+        job = get_job(job_id, viewer)
         if job["state"] in ACTIVE:
             raise HTTPException(409, "This job is already running.")
         key = req.api_key.strip()
@@ -173,9 +187,74 @@ def create_app(data_dir=None, *, executor=None, backend_factory=jobs.default_bac
                         req.provider, send_mail if email else None)
         return public(store.read(job_id))
 
+    def cloud_env(request):
+        env = request.headers.get("x-wx-env") or os.environ.get("WX_CLOUD_ENV")
+        if not env:
+            raise HTTPException(400, "Cloud storage is not available here.")
+        return env
+
+    @app.post("/api/jobs/from-storage")
+    def upload_from_storage(req: StorageUpload, request: Request, viewer: str = Depends(who)):
+        """Create a job from a book the mini program put in cloud storage."""
+        env = cloud_env(request)
+        ext = Path(req.filename).suffix.lower()
+        if ext not in EXTENSIONS:
+            raise HTTPException(400, "Upload a .pdf, .epub or .txt file.")
+        job_id = store.new(req.filename, ocr=False, range="", pages_total=0, owner=viewer or "")
+        path = store.dir(job_id) / ("input" + ext)
+        try:
+            cloud.download(env, req.file_id, path, max_upload_mb << 20)
+        except cloud.CloudError as e:
+            store.delete(job_id)
+            if "too large" in str(e):
+                raise HTTPException(413, f"The file is larger than {max_upload_mb} MB.")
+            raise HTTPException(400, "The uploaded file could not be fetched.")
+        cloud.delete(env, [req.file_id])  # the book now lives only in the job folder
+        try:
+            n = total_pages(path)
+        except Exception:
+            store.delete(job_id)
+            raise HTTPException(400, "This file could not be read as a book.")
+        store.write(job_id, pages_total=n)
+        return public(store.read(job_id))
+
+    @app.get("/api/jobs/{job_id}/result")
+    def result(job_id: str, request: Request, viewer: str = Depends(who)):
+        """Put the finished PDF in cloud storage and return its file id for wx.cloud.downloadFile."""
+        job = get_job(job_id, viewer)
+        out = store.dir(job_id) / "output.pdf"
+        if job["state"] != "done" or not out.exists():
+            raise HTTPException(409, "The translation is not finished.")
+        env = cloud_env(request)
+        if not job.get("result_file_id"):
+            try:
+                file_id = cloud.upload(env, out, f"results/{job_id}.pdf")
+            except cloud.CloudError:
+                raise HTTPException(502, "Could not store the finished PDF. Try again.")
+            store.write(job_id, result_file_id=file_id, env=env)
+            job["result_file_id"] = file_id
+        stem = Path(job["filename"]).stem or "book"
+        return {"file_id": job["result_file_id"], "filename": f"{stem}_bilingual.pdf"}
+
+    @app.get("/api/storage-probe")
+    def storage_probe(request: Request):
+        """Round-trip a tiny file through cloud storage (to check the setup after deploying)."""
+        env = cloud_env(request)
+        tmp = Path(data_dir) / "probe.txt"
+        tmp.parent.mkdir(parents=True, exist_ok=True)
+        tmp.write_text("probe")
+        try:
+            file_id = cloud.upload(env, tmp, f"probe/{secrets.token_hex(8)}.txt")
+            back = Path(data_dir) / "probe.back"
+            cloud.download(env, file_id, back, 1024)
+            cloud.delete(env, [file_id])
+            return {"ok": back.read_text() == "probe", "file_id": file_id}
+        except cloud.CloudError as e:
+            return {"ok": False, "error": str(e)}
+
     @app.get("/api/jobs/{job_id}/download")
-    def download(job_id: str, authorization: str = Header(None)):
-        job = get_job(job_id, authorization)
+    def download(job_id: str, viewer: str = Depends(who)):
+        job = get_job(job_id, viewer)
         out = store.dir(job_id) / "output.pdf"
         if job["state"] != "done" or not out.exists():
             raise HTTPException(409, "The translation is not finished.")
@@ -185,10 +264,12 @@ def create_app(data_dir=None, *, executor=None, backend_factory=jobs.default_bac
                             headers={"Cache-Control": "no-store"})
 
     @app.delete("/api/jobs/{job_id}")
-    def delete(job_id: str, authorization: str = Header(None)):
-        job = get_job(job_id, authorization)
+    def delete(job_id: str, viewer: str = Depends(who)):
+        job = get_job(job_id, viewer)
         if job["state"] in ACTIVE:
             raise HTTPException(409, "Wait for the job to finish before deleting it.")
+        if job.get("result_file_id"):
+            cloud.delete(job.get("env") or os.environ.get("WX_CLOUD_ENV", ""), [job["result_file_id"]])
         store.delete(job_id)
         return {"deleted": True}
 

@@ -242,3 +242,71 @@ def test_bad_email_is_rejected(make_client, text_pdf):
 def test_whoami_shows_only_wechat_headers(make_client):
     r = make_client().get("/api/whoami", headers={"X-WX-OPENID": "o123", "Authorization": "secret"})
     assert r.json() == {"wx_headers": {"x-wx-openid": "o123"}}
+
+
+class FakeCloud:
+    """Stands in for WeChat cloud storage: a dict of file id -> bytes."""
+    from booktrans.web.wxcloud import CloudError
+
+    def __init__(self, files=None):
+        self.files = dict(files or {})
+        self.deleted = []
+
+    def download(self, env, file_id, dest, max_bytes):
+        if file_id not in self.files:
+            raise self.CloudError("file not available")
+        if len(self.files[file_id]) > max_bytes:
+            raise self.CloudError("file too large")
+        open(dest, "wb").write(self.files[file_id])
+
+    def upload(self, env, local_path, cloud_path):
+        self.files["id:" + cloud_path] = open(local_path, "rb").read()
+        return "id:" + cloud_path
+
+    def delete(self, env, ids):
+        self.deleted += ids
+        for i in ids:
+            self.files.pop(i, None)
+
+
+def wx_client(make_client, cloud, **kw):
+    return make_client(cloud=cloud, **kw)
+
+
+def test_cloud_hosting_flow_uses_wechat_headers_and_storage(make_client, text_pdf, monkeypatch):
+    monkeypatch.setenv("BOOKTRANS_TRUST_WX_HEADERS", "1")
+    cloud = FakeCloud({"cloud://book": text_pdf.read_bytes()})
+    c = wx_client(make_client, cloud)
+    alice = {"X-WX-OPENID": "alice", "X-WX-ENV": "env1"}
+    bob = {"X-WX-OPENID": "bob", "X-WX-ENV": "env1"}
+    job = c.post("/api/jobs/from-storage", json={"file_id": "cloud://book", "filename": "b.pdf"},
+                 headers=alice).json()
+    assert job["pages_total"] == 3 and "cloud://book" in cloud.deleted
+    url = f"/api/jobs/{job['id']}"
+    assert c.get(url, headers=bob).status_code == 404
+    c.post(url + "/start", json={"api_key": KEY}, headers=alice)
+    end = time.time() + 20
+    while c.get(url, headers=alice).json()["state"] not in ("done", "failed") and time.time() < end:
+        time.sleep(0.05)
+    r = c.get(url + "/result", headers=alice).json()
+    assert r["filename"] == "b_bilingual.pdf" and cloud.files[r["file_id"]][:4] == b"%PDF"
+    assert c.delete(url, headers=alice).status_code == 200 and r["file_id"] in cloud.deleted
+
+
+def test_wechat_headers_are_ignored_unless_trusted(make_client, text_pdf, monkeypatch):
+    monkeypatch.delenv("BOOKTRANS_TRUST_WX_HEADERS", raising=False)
+    c = make_client(cloud=FakeCloud())
+    job = upload(c, "b.pdf", text_pdf.read_bytes()).json()
+    # an unowned job stays reachable; a forged openid must not create an owned one
+    owned = c.post("/api/jobs", files={"file": ("b.pdf", text_pdf.read_bytes())},
+                   headers={"X-WX-OPENID": "mallory"}).json()
+    from booktrans.web.jobs import JobStore
+    assert JobStore(c.app.state.store.root).read(owned["id"])["owner"] == ""
+
+
+def test_from_storage_errors(make_client):
+    c = make_client(cloud=FakeCloud())
+    h = {"X-WX-ENV": "env1"}
+    assert c.post("/api/jobs/from-storage", json={"file_id": "x", "filename": "a.exe"}, headers=h).status_code == 400
+    assert c.post("/api/jobs/from-storage", json={"file_id": "x", "filename": "a.pdf"}, headers=h).status_code == 400
+    assert c.post("/api/jobs/from-storage", json={"file_id": "x", "filename": "a.pdf"}).status_code == 400
