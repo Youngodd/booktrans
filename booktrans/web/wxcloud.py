@@ -6,6 +6,7 @@ Cloud Hosting these WeChat HTTP APIs need no access token. WX_API_BASE overrides
 """
 import json
 import os
+import urllib.error
 import urllib.request
 import uuid
 
@@ -26,8 +27,11 @@ def _post_json(path, body):
     try:
         with urllib.request.urlopen(req, timeout=TIMEOUT) as r:
             data = json.loads(r.read())
+    except urllib.error.HTTPError as e:
+        raise CloudError(f"cloud storage request failed: HTTP {e.code} {e.read()[:300]!r} "
+                         f"(POST {_base()}{path})")
     except (OSError, ValueError) as e:
-        raise CloudError(f"cloud storage request failed: {e}")
+        raise CloudError(f"cloud storage request failed: {e} (POST {_base()}{path})")
     if data.get("errcode"):
         raise CloudError(f"cloud storage error {data.get('errcode')}: {data.get('errmsg')}")
     return data
