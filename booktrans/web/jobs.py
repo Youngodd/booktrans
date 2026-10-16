@@ -93,6 +93,35 @@ def preview_range(pages, total):
     return f"{idx[0] + 1}-{idx[min(PREVIEW_PAGES, len(idx)) - 1] + 1}"
 
 
+def _failure_text(e, api_key):
+    msg = str(e).replace(api_key, "***") if api_key else str(e)
+    if not isinstance(e, (BackendError, ValueError)):
+        msg = "Something went wrong while translating this book."
+    return msg[:500]
+
+
+def run_glossary_draft(root, job_id, api_key, backend_factory=default_backend, provider="api",
+                       pages=""):
+    """Build the book's glossary ahead of the translation so the user can review it."""
+    from ..pipeline import draft_glossary
+    store = JobStore(root)
+    job = store.read(job_id)
+    if job is None:
+        return
+    path = store.dir(job_id)
+    store.write(job_id, glossary_state="building", glossary_error="")
+    try:
+        translator = backend_factory(api_key, provider)
+        glossary = draft_glossary(path / ("input" + job["ext"]), translator,
+                                  path / "output.glossary.json", pages=pages or None)
+        store.write(job_id, glossary_state="ready",
+                    glossary_count=sum(1 for zh in glossary.values() if zh))
+    except BaseException as e:
+        store.write(job_id, glossary_state="failed", glossary_error=_failure_text(e, api_key))
+        if not isinstance(e, Exception):
+            raise
+
+
 def run_job(root, job_id, api_key, backend_factory=default_backend, provider="api",
             send_mail=None):
     """Run one job to the end. Executed in a worker process (or thread, in tests)."""
@@ -113,7 +142,7 @@ def run_job(root, job_id, api_key, backend_factory=default_backend, provider="ap
         pages = job["range"]
         translate_book(path / ("input" + job["ext"]), path / "output.pdf", translator,
                        ocr_backend=translator if job["ocr"] else None, pages=pages,
-                       progress=progress)
+                       progress=progress, auto_glossary=job.get("auto_glossary", True))
         store.write(job_id, state="done", stage="done", usage=translator.usage.as_dict(),
                     finished=time.time())
         if send_mail and job.get("email"):
@@ -124,10 +153,7 @@ def run_job(root, job_id, api_key, backend_factory=default_backend, provider="ap
             except Exception:  # the PDF is still downloadable; just record the failure
                 store.write(job_id, email_state="failed")
     except BaseException as e:  # report every failure to the browser, never lose the job
-        msg = str(e).replace(api_key, "***") if api_key else str(e)
-        if not isinstance(e, (BackendError, ValueError)):
-            msg = "Something went wrong while translating this book."
         usage = translator.usage.as_dict() if translator else {}
-        store.write(job_id, state="failed", error=msg[:500], usage=usage, finished=time.time())
+        store.write(job_id, state="failed", error=_failure_text(e, api_key), usage=usage, finished=time.time())
         if not isinstance(e, Exception):
             raise

@@ -325,3 +325,100 @@ def test_expired_job_also_drops_its_stored_pdf(make_client, text_pdf, monkeypatc
         os.utime(p, (0, 0))
     assert store.cleanup(1, lambda j: cloud.delete("env1", [j["result_file_id"]])) == 1
     assert file_id in cloud.deleted
+
+
+NAMES = "He met Boyle in Oxford. She met Boyle in Oxford. " * 3
+
+
+def glossary_factory(key, provider="api"):
+    """A backend that answers glossary requests with fixed names, other requests with 译:<text>."""
+    import re
+
+    def reply(user):
+        if " | " not in user:
+            return "译:" + user
+        fixed = {"Boyle": "波义耳", "Oxford": "牛津"}
+        return "\n".join(f"[{m.group(1)}] {fixed.get(m.group(2), '~')}"
+                         for m in re.finditer(r"(?m)^\[(\d+)\] ([^|]+?) \|", user))
+    return FakeBackend(reply=reply)
+
+
+def wait_glossary(client, job_id, **kw):
+    end = time.time() + 20
+    while time.time() < end:
+        g = client.get(f"/api/jobs/{job_id}/glossary", **kw).json()
+        if g["state"] in ("ready", "failed"):
+            return g
+        time.sleep(0.05)
+    raise AssertionError("glossary did not finish")
+
+
+def test_glossary_draft_edit_and_use(make_client):
+    c = make_client(glossary_factory)
+    job = upload(c, "b.txt", NAMES.encode()).json()
+    url = f"/api/jobs/{job['id']}"
+    assert c.post(url + "/glossary/draft", json={"api_key": "short"}).status_code == 400
+    r = c.post(url + "/glossary/draft", json={"api_key": KEY})
+    assert r.status_code == 200
+    g = wait_glossary(c, job["id"])
+    assert g["state"] == "ready"
+    assert {e["term"]: e["zh"] for e in g["entries"]} == {"Boyle": "波义耳", "Oxford": "牛津"}
+    # the user fixes one name and adds another, and drops Oxford
+    r = c.put(url + "/glossary", json={"entries": {"Boyle": "玻意耳", "Newton": "牛顿", "Oxford": ""}})
+    assert r.json() == {"entries": 2}
+    got = {e["term"]: e["zh"] for e in c.get(url + "/glossary").json()["entries"]}
+    assert got == {"Boyle": "玻意耳", "Newton": "牛顿"}
+    assert c.post(url + "/start", json={"api_key": KEY}).status_code == 200
+    j = wait(c, job["id"])
+    assert j["state"] == "done"
+    assert j["glossary_count"] == 2
+
+
+def test_the_translation_uses_the_edited_glossary(make_client):
+    seen = []
+
+    def factory(key, provider="api"):
+        base = glossary_factory(key, provider)
+        orig = base.complete
+        base.complete = lambda system, user, max_tokens=4096: (seen.append(system), orig(system, user))[1]
+        return base
+    c = make_client(factory)
+    job = upload(c, "b.txt", NAMES.encode()).json()
+    url = f"/api/jobs/{job['id']}"
+    c.post(url + "/glossary/draft", json={"api_key": KEY})
+    wait_glossary(c, job["id"])
+    c.put(url + "/glossary", json={"entries": {"Boyle": "玻意耳"}})
+    seen.clear()
+    c.post(url + "/start", json={"api_key": KEY})
+    wait(c, job["id"])
+    assert seen and all("Boyle = 玻意耳" in s for s in seen)
+
+
+def test_auto_glossary_can_be_switched_off(make_client):
+    c = make_client(glossary_factory)
+    job = upload(c, "b.txt", NAMES.encode()).json()
+    url = f"/api/jobs/{job['id']}"
+    c.post(url + "/start", json={"api_key": KEY, "auto_glossary": False})
+    assert wait(c, job["id"])["state"] == "done"
+    assert c.get(url + "/glossary").json()["entries"] == []
+
+
+def test_glossary_draft_reports_a_rejected_key(make_client):
+    def bad(key, provider="api"):
+        raise AuthError("The API key was rejected.")
+    c = make_client(bad)
+    job = upload(c, "b.txt", NAMES.encode()).json()
+    c.post(f"/api/jobs/{job['id']}/glossary/draft", json={"api_key": KEY})
+    g = wait_glossary(c, job["id"])
+    assert g["state"] == "failed" and "rejected" in g["error"]
+
+
+def test_glossary_is_private_and_validated(make_client):
+    c = mp_client(make_client)
+    alice, bob = login(c, "alice"), login(c, "bob")
+    job = c.post("/api/jobs", files={"file": ("b.txt", NAMES.encode())}, headers=alice).json()
+    url = f"/api/jobs/{job['id']}/glossary"
+    assert c.get(url, headers=bob).status_code == 404
+    assert c.put(url, json={"entries": {"A": "x"}}, headers=bob).status_code == 404
+    assert c.put(url, json={"entries": {"": "x"}}, headers=alice).status_code == 400
+    assert c.put(url, json={"entries": {"A": "x" * 81}}, headers=alice).status_code == 400

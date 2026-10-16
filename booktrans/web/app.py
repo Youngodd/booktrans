@@ -12,6 +12,7 @@ from pydantic import BaseModel
 
 from ..pipeline import total_pages
 from ..readers import parse_range
+from .. import glossary as glossary_mod
 from . import auth, jobs, mailer, wxcloud
 from .jobs import JobStore
 
@@ -19,6 +20,7 @@ STATIC = Path(__file__).parent / "static"
 EXTENSIONS = (".pdf", ".epub", ".txt")
 EST_COST_PER_PAGE = 0.017  # USD on the Anthropic API, measured on a scanned history book
 ACTIVE = ("queued", "running")
+MAX_GLOSSARY_ENTRIES = 500
 WEB_PROVIDERS = ("api", "qwen", "qwen-intl", "deepseek")  # bring-your-own-key suppliers
 
 
@@ -29,6 +31,18 @@ class StartRequest(BaseModel):
     preview: bool = False
     ocr: bool = False
     email: str = ""
+    auto_glossary: bool = True
+
+
+class DraftRequest(BaseModel):
+    api_key: str
+    provider: str = "api"
+    pages: str = ""
+    preview: bool = False
+
+
+class GlossaryEdit(BaseModel):
+    entries: dict[str, str]
 
 
 class StorageUpload(BaseModel):
@@ -108,7 +122,8 @@ def create_app(data_dir=None, *, executor=None, backend_factory=jobs.default_bac
 
     def public(job):
         keys = ("id", "filename", "state", "stage", "done", "total", "error", "pages_total",
-                "range", "preview", "usage", "email_state")
+                "range", "preview", "usage", "email_state", "glossary_state", "glossary_error",
+                "glossary_count", "auto_glossary")
         return {k: job[k] for k in keys if k in job} | {"est_cost_per_page": EST_COST_PER_PAGE}
 
     @app.post("/api/login")
@@ -159,21 +174,18 @@ def create_app(data_dir=None, *, executor=None, backend_factory=jobs.default_bac
     def status(job_id: str, viewer: str = Depends(who)):
         return public(get_job(job_id, viewer))
 
-    @app.post("/api/jobs/{job_id}/start")
-    def start(job_id: str, req: StartRequest, viewer: str = Depends(who)):
-        job = get_job(job_id, viewer)
-        if job["state"] in ACTIVE:
-            raise HTTPException(409, "This job is already running.")
-        key = req.api_key.strip()
-        if req.provider not in WEB_PROVIDERS:
+    def check_key(api_key, provider):
+        key = api_key.strip()
+        if provider not in WEB_PROVIDERS:
             raise HTTPException(400, "Unknown provider.")
-        if len(key) < 8 or (req.provider == "api" and not key.startswith("sk-")):
+        if len(key) < 8 or (provider == "api" and not key.startswith("sk-")):
             raise HTTPException(400, "Enter your API key for the chosen provider.")
-        email = req.email.strip()
-        if email and not mailer.EMAIL_RE.match(email):
-            raise HTTPException(400, "That email address does not look right.")
+        return key
+
+    def resolve_range(job, pages, preview):
+        """The "start-end" page range a job will cover, or an HTTP 400 if it is not valid."""
         try:
-            idx = parse_range(req.pages.strip() or None, job["pages_total"])
+            idx = parse_range(pages.strip() or None, job["pages_total"])
         except ValueError as e:
             raise HTTPException(400, str(e))
         if not idx:
@@ -181,11 +193,62 @@ def create_app(data_dir=None, *, executor=None, backend_factory=jobs.default_bac
         if len(idx) > max_pages:
             raise HTTPException(400, f"At most {max_pages} pages per job; choose a range.")
         rng = f"{idx[0] + 1}-{idx[-1] + 1}"
-        if req.preview:
-            rng = jobs.preview_range(rng, job["pages_total"])
+        return jobs.preview_range(rng, job["pages_total"]) if preview else rng
+
+    @app.post("/api/jobs/{job_id}/glossary/draft")
+    def glossary_draft(job_id: str, req: DraftRequest, viewer: str = Depends(who)):
+        """Start building the glossary of names for the chosen pages (for the user to review)."""
+        job = get_job(job_id, viewer)
+        if job["state"] in ACTIVE or job.get("glossary_state") == "building":
+            raise HTTPException(409, "This job is already running.")
+        key = check_key(req.api_key, req.provider)
+        rng = resolve_range(job, req.pages, req.preview)
+        store.write(job_id, glossary_state="building", glossary_error="")
+        executor.submit(jobs.run_glossary_draft, str(store.root), job_id, key, backend_factory,
+                        req.provider, rng)
+        return public(store.read(job_id))
+
+    @app.get("/api/jobs/{job_id}/glossary")
+    def glossary_get(job_id: str, viewer: str = Depends(who)):
+        job = get_job(job_id, viewer)
+        entries = glossary_mod.load(store.dir(job_id) / "output.glossary.json")
+        return {"state": job.get("glossary_state", ""), "error": job.get("glossary_error", ""),
+                "entries": [{"term": t, "zh": zh} for t, zh in
+                            sorted(entries.items(), key=lambda p: p[0].lower()) if zh]}
+
+    @app.put("/api/jobs/{job_id}/glossary")
+    def glossary_put(job_id: str, req: GlossaryEdit, viewer: str = Depends(who)):
+        """Merge the user's edits: a term with an empty rendering is dropped from use."""
+        job = get_job(job_id, viewer)
+        if job["state"] in ACTIVE or job.get("glossary_state") == "building":
+            raise HTTPException(409, "Wait for the job to finish first.")
+        if len(req.entries) > MAX_GLOSSARY_ENTRIES:
+            raise HTTPException(400, "Too many glossary entries.")
+        path = store.dir(job_id) / "output.glossary.json"
+        glossary = glossary_mod.load(path)
+        for term, zh in req.entries.items():
+            term, zh = term.strip(), zh.strip()
+            if not term or len(term) > 80 or len(zh) > 80:
+                raise HTTPException(400, "A glossary entry is empty or too long.")
+            glossary[term] = zh
+        glossary_mod.save(path, glossary)
+        count = sum(1 for zh in glossary.values() if zh)
+        store.write(job_id, glossary_state="ready", glossary_count=count)
+        return {"entries": count}
+
+    @app.post("/api/jobs/{job_id}/start")
+    def start(job_id: str, req: StartRequest, viewer: str = Depends(who)):
+        job = get_job(job_id, viewer)
+        if job["state"] in ACTIVE:
+            raise HTTPException(409, "This job is already running.")
+        key = check_key(req.api_key, req.provider)
+        email = req.email.strip()
+        if email and not mailer.EMAIL_RE.match(email):
+            raise HTTPException(400, "That email address does not look right.")
+        rng = resolve_range(job, req.pages, req.preview)
         store.write(job_id, state="queued", stage="", done=0, total=0, error="", ocr=req.ocr,
                     range=rng, preview=req.preview, started=time.time(), email=email,
-                    email_state="")
+                    email_state="", auto_glossary=req.auto_glossary)
         executor.submit(jobs.run_job, str(store.root), job_id, key, backend_factory,
                         req.provider, send_mail if email else None)
         return public(store.read(job_id))

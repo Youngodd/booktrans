@@ -48,6 +48,21 @@ def count_pages(book, pages=None):
     return len(parse_range(pages, total_pages(book)))
 
 
+def draft_glossary(book, translator, glossary_path, *, pages=None, progress=None):
+    """Find the names of the chosen pages and fix a rendering for each; returns the glossary.
+
+    The result is saved at `glossary_path`; translate_book picks it up when `glossary_path`
+    is `<out>.glossary.json`, and only asks about names it does not hold yet.
+    """
+    book = Path(book)
+    all_pages = read_book(book)
+    idx = parse_range(pages, len(all_pages))
+    glossary = glossary_mod.load(glossary_path)
+    glossary_mod.build(translator, all_pages, [all_pages[i] for i in idx], glossary, progress)
+    glossary_mod.save(glossary_path, glossary)
+    return glossary
+
+
 def translate_book(book, out, translator, *, ocr_backend=None, pages=None, redo=None,
                    flat=False, progress=None, glossary_file=None, auto_glossary=True):
     """Translate `book` into the bilingual PDF `out`; returns `out`.
