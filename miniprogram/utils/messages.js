@@ -18,6 +18,9 @@ const RULES = [
   [/^WeChat login is not configured/, '服务器尚未配置微信登录。'],
   [/Could not reach WeChat/, '无法连接微信验证登录。'],
   [/WeChat rejected/, '微信拒绝了本次登录。'],
+  [/Too many glossary entries/, '术语太多了（最多 500 条）。'],
+  [/glossary entry is empty or too long/, '术语不能为空，且不能超过 80 个字。'],
+  [/Wait for the job to finish first/, '请等任务结束后再修改术语表。'],
   [/Something went wrong/, '翻译过程中出现错误，请稍后重试。'],
 ]
 

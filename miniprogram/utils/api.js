@@ -101,4 +101,7 @@ module.exports = {
   getJob: (id) => request('GET', '/api/jobs/' + id),
   startJob: (id, body) => request('POST', '/api/jobs/' + id + '/start', body),
   deleteJob: (id) => request('DELETE', '/api/jobs/' + id),
+  draftGlossary: (id, body) => request('POST', '/api/jobs/' + id + '/glossary/draft', body),
+  getGlossary: (id) => request('GET', '/api/jobs/' + id + '/glossary'),
+  saveGlossary: (id, entries) => request('PUT', '/api/jobs/' + id + '/glossary', { entries }),
 }

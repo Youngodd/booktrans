@@ -11,7 +11,7 @@ const PROVIDERS = [
 Page({
   data: {
     providers: PROVIDERS, providerIndex: 0, apiKey: '', pages: '', email: '',
-    preview: false, ocr: false, job: null, busy: false, error: '', emailEnabled: false,
+    preview: false, ocr: false, autoGlossary: true, glossaryReady: false, job: null, busy: false, error: '', emailEnabled: false,
   },
 
   onProvider(e) { this.setData({ providerIndex: Number(e.detail.value) }) },
@@ -19,6 +19,7 @@ Page({
   onPages(e) { this.setData({ pages: e.detail.value }) },
   onEmail(e) { this.setData({ email: e.detail.value }) },
   onPreview(e) { this.setData({ preview: e.detail.value }) },
+  onAutoGlossary(e) { this.setData({ autoGlossary: e.detail.value }) },
   onOcr(e) { this.setData({ ocr: e.detail.value }) },
 
   async pickFile() {
@@ -30,11 +31,30 @@ Page({
       wx.showLoading({ title: '上传中...' })
       const login = await api.login()
       const job = await api.upload(tempFiles[0].path, tempFiles[0].name)
-      this.setData({ job, emailEnabled: login.email_enabled })
+      this.setData({ job, emailEnabled: login.email_enabled, glossaryReady: false })
     } catch (e) {
       if (!/cancel/.test(e.errMsg || '')) this.setData({ error: e.message || '无法添加该文件' })
     } finally {
       wx.hideLoading()
+      this.setData({ busy: false })
+    }
+  },
+
+  // Build the glossary now (it needs the key), then let the user look through it.
+  async reviewGlossary() {
+    const d = this.data
+    this.setData({ busy: true, error: '' })
+    try {
+      if (!d.glossaryReady) {
+        await api.draftGlossary(d.job.id, {
+          api_key: d.apiKey, provider: PROVIDERS[d.providerIndex].id, pages: d.pages, preview: d.preview,
+        })
+        this.setData({ glossaryReady: true })
+      }
+      wx.navigateTo({ url: '/pages/glossary/glossary?id=' + d.job.id })
+    } catch (e) {
+      this.setData({ error: e.message })
+    } finally {
       this.setData({ busy: false })
     }
   },
@@ -45,7 +65,7 @@ Page({
     try {
       await api.startJob(d.job.id, {
         api_key: d.apiKey, provider: PROVIDERS[d.providerIndex].id, pages: d.pages,
-        preview: d.preview, ocr: d.ocr, email: d.email,
+        preview: d.preview, ocr: d.ocr, email: d.email, auto_glossary: d.autoGlossary,
       })
       wx.navigateTo({ url: '/pages/job/job?id=' + d.job.id })
     } catch (e) {

@@ -2,7 +2,8 @@
   "pages": [
     "pages/index/index",
     "pages/job/job",
-    "pages/privacy/privacy"
+    "pages/privacy/privacy",
+    "pages/glossary/glossary"
   ],
   "window": {
     "navigationBarTitleText": "图书翻译",

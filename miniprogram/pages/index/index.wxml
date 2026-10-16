@@ -32,6 +32,10 @@
     <view style="margin-top:12rpx">
       <switch checked="{{ocr}}" bindchange="onOcr"/> 扫描版图书（OCR 识别）
     </view>
+    <view style="margin-top:12rpx">
+      <switch checked="{{autoGlossary}}" bindchange="onAutoGlossary"/> 自动统一人名、地名和术语译法
+    </view>
+    <button class="btn plain" wx:if="{{autoGlossary}}" bindtap="reviewGlossary" disabled="{{busy}}">先查看/修改术语表（可选）</button>
     <button class="btn" bindtap="start" disabled="{{busy}}">{{busy ? '处理中...' : '开始翻译'}}</button>
   </view>
 
