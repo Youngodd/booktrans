@@ -12,8 +12,10 @@
     <view>翻译完成。</view>
     <view class="sub" wx:if="{{job.email_state === 'sent'}}">PDF 也已发送到你的邮箱。</view>
     <view class="error" wx:if="{{job.email_state === 'failed'}}">邮件发送失败，请在这里下载。</view>
-    <button class="btn" bindtap="open" disabled="{{busy}}">打开 PDF</button>
-    <button class="btn plain" bindtap="share" disabled="{{busy}}">发送到聊天（便于保存）</button>
+    <view class="sub" wx:if="{{busy}}">正在把 PDF 下载到手机...</view>
+    <button class="btn" bindtap="open" disabled="{{!ready}}">打开 PDF</button>
+    <button class="btn plain" bindtap="share" disabled="{{!ready}}">发送到聊天（便于保存）</button>
+    <button class="btn plain" wx:if="{{!ready && !busy}}" bindtap="retry">重新下载</button>
   </view>
 
   <view class="card" wx:if="{{job.state === 'failed'}}">
