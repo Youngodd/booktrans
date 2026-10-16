@@ -1,7 +1,7 @@
 const api = require('../../utils/api')
 const { zh } = require('../../utils/messages')
 
-const STAGES = { scan: '正在读取图书', ocr: '正在识别扫描页', translate: '正在翻译', render: '正在生成 PDF', done: '已完成' }
+const STAGES = { scan: '正在读取图书', ocr: '正在识别扫描页', glossary: '正在整理人名术语', translate: '正在翻译', render: '正在生成 PDF', done: '已完成' }
 
 Page({
   data: { job: {}, percent: 0, stageText: '', busy: false, error: '', ready: false },

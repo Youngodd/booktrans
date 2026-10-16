@@ -36,6 +36,11 @@ def parse_args():
     ap.add_argument("--flat", action="store_true",
                     help="PDF input: typeset the translation as plain text pages "
                          "instead of copying each page's layout")
+    ap.add_argument("--glossary", type=Path,
+                    help="text file of `English=中文` lines: fixed renderings of names and "
+                         "terms (they override the automatic glossary)")
+    ap.add_argument("--no-auto-glossary", action="store_true",
+                    help="do not build the automatic glossary of repeated names")
     ap.add_argument("--ocr", action="store_true",
                     help="OCR scanned PDF pages (no text layer) with a vision model")
     ap.add_argument("--ocr-backend", choices=list(BACKENDS),
@@ -47,7 +52,9 @@ def parse_args():
 def make_progress():
     """Print one line per page for the slow stages (translation, OCR)."""
     def progress(stage, done, total):
-        if stage in ("translate", "ocr"):
+        if stage == "glossary":
+            print(f"Glossary: {done}/{total} names...", flush=True)
+        elif stage in ("translate", "ocr"):
             print(f"{'OCR' if stage == 'ocr' else 'Translating'} page {done}/{total}...",
                   flush=True)
     return progress
@@ -87,6 +94,7 @@ def run(args):
 
     out = args.output or default_output(args.book, args.pages)
     translate_book(args.book, out, translator, ocr_backend=ocr_backend, pages=args.pages,
-                   redo=args.redo, flat=args.flat, progress=make_progress())
+                   redo=args.redo, flat=args.flat, progress=make_progress(),
+                   glossary_file=args.glossary, auto_glossary=not args.no_auto_glossary)
     print(f"Done: {out}")
     usage.report(out)

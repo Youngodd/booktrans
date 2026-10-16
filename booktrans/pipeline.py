@@ -5,6 +5,7 @@ service. Nothing here prints or exits; progress goes to an optional callback.
 """
 from pathlib import Path
 
+from . import glossary as glossary_mod
 from .layout import collect_layout, render_layout_page
 from .ocr import ocr_scanned_pages
 from .readers import parse_range, read_book
@@ -48,7 +49,7 @@ def count_pages(book, pages=None):
 
 
 def translate_book(book, out, translator, *, ocr_backend=None, pages=None, redo=None,
-                   flat=False, progress=None):
+                   flat=False, progress=None, glossary_file=None, auto_glossary=True):
     """Translate `book` into the bilingual PDF `out`; returns `out`.
 
     translator    an LLMBackend that translates
@@ -56,8 +57,11 @@ def translate_book(book, out, translator, *, ocr_backend=None, pages=None, redo=
                   (without one, such pages stay blank)
     pages         page range such as "1-20"; redo: pages to re-translate despite the cache
     flat          PDF input: plain-text Chinese pages instead of the original layout
-    progress      progress(stage, done, total) with stage "scan", "ocr", "translate" or
-                  "render", called as pages complete
+    progress      progress(stage, done, total) with stage "scan", "ocr", "glossary",
+                  "translate" or "render", called as pages complete
+    glossary_file  text file of `English=中文` lines that override the glossary
+    auto_glossary  find repeated names and fix one Chinese rendering for each, so a name
+                  reads the same on every page (kept in `<out>.glossary.json`)
 
     Progress is cached next to `out`, so a repeated call resumes where it stopped.
     """
@@ -78,10 +82,22 @@ def translate_book(book, out, translator, *, ocr_backend=None, pages=None, redo=
     layout, ctx = ({}, {}) if not is_pdf or flat else \
         collect_layout(book, idx, skip=scanned, progress=progress)
 
+    glossary_path = out.with_suffix(".glossary.json")
+    glossary = glossary_mod.load(glossary_path)
+    if auto_glossary:
+        book_texts = list(all_pages)  # the whole book, with the OCR text of the chosen pages
+        for k, i in enumerate(idx):
+            book_texts[i] = texts[k]
+        glossary_mod.build(translator, book_texts, texts, glossary, progress)
+    if glossary_file:
+        glossary.update(glossary_mod.parse_file(glossary_file))
+    if glossary:
+        glossary_mod.save(glossary_path, glossary)
+
     cache = load_cache(cache_path)
     redo = set(parse_range(redo, len(all_pages))) if redo else set()
     translations = translate_all(translator, idx, texts, layout, ctx,
-                                 cache, cache_path, redo, progress)
+                                 cache, cache_path, redo, progress, glossary)
 
     original = None
     if is_pdf:  # keep the original page layout; a page range needs a trimmed copy
