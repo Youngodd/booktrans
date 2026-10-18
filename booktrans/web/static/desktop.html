@@ -190,6 +190,11 @@
     </select>
     <p class="hint">Domestic and international Qwen keys are different; pick the site your key came from. 国内站与国际站的 key 不通用，请选择你申请 key 的站点。</p>
     <p class="hint"><a href="#" id="keyhelp">How do I get a key? 如何获取 key？</a></p>
+    <label for="proxy">Proxy 代理 <span style="font-weight:400;color:var(--mute)">(optional 可留空)</span></label>
+    <input type="text" id="proxy" autocomplete="off" spellcheck="false" placeholder="http://127.0.0.1:7890">
+    <p class="hint">Leave empty to use your system's proxy settings. Needed to reach Anthropic from mainland China. 留空则使用系统代理设置；在中国大陆访问 Anthropic 通常需要代理。</p>
+    <div class="actions"><button class="secondary" id="btn-saveproxy">Save proxy 保存代理</button></div>
+    <p class="msg" id="proxymsg"></p>
     <label for="key">API key</label>
     <input type="password" id="key" autocomplete="off" spellcheck="false" placeholder="sk-ant-…">
     <p class="hint">Checked with the provider, then stored in your system's credential store (Windows Credential Manager); never written to a file or logged. 验证通过后保存在系统凭据库，不会写入文件或日志。</p>
@@ -321,7 +326,9 @@ $("keyhelp").onclick = (e) => {
   if (bridge) bridge.open_url(url); else window.open(url, "_blank", "noopener");
 };
 
+const zhSystem = /^zh(-CN|-Hans)?$/i.test(navigator.language || "");  // Anthropic is not reachable from mainland China
 function openKeyPanel(first) {
+  if (!provider && zhSystem) provider = "qwen";
   $("key-title").firstChild.textContent = first ? "Add your API key " : "API key ";
   show("first-run-note", first);
   show("btn-delkey", hasKey); show("btn-closekey", hasKey);
@@ -330,6 +337,17 @@ function openKeyPanel(first) {
   show("step-key", true);
   $("step-key").scrollIntoView();
 }
+$("btn-saveproxy").onclick = async () => {
+  const url = $("proxy").value.trim();
+  $("proxymsg").className = "msg";
+  let r;
+  if (bridge) r = await bridge.set_proxy(url);
+  else { try { r = Object.assign({ ok: true }, await api("/api/proxy", json("PUT", { url }))); } catch (e) { r = { ok: false, error: e.message }; } }
+  $("proxymsg").className = "msg" + (r.ok ? " done" : " err");
+  $("proxymsg").textContent = r.ok ? (r.proxy ? "已保存 Saved: " + r.proxy : "已清除 Cleared — using system settings") : (r.error || "保存失败 Could not save");
+  if (r.ok) $("proxy").value = "";
+  if (r.ok) $("proxy").placeholder = r.proxy || "http://127.0.0.1:7890";
+};
 $("btn-settings").onclick = () => openKeyPanel(false);
 $("btn-closekey").onclick = () => show("step-key", false);
 
@@ -512,7 +530,9 @@ $("btn-reveal").onclick = () => { if (bridge && savedPath) bridge.reveal(savedPa
 (async function init() {
   bridge = await waitForBridge();
   try {
+    if (bridge) await bridge.use_stored_proxy();
     let cfg = await api("/api/config");
+    if (cfg.proxy) $("proxy").placeholder = cfg.proxy;
     if (!cfg.has_key && bridge) {
       const s = await bridge.has_key();
       if (s.has_key) { await bridge.use_stored_key(); cfg = await api("/api/config"); }

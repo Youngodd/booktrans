@@ -159,3 +159,35 @@ def test_job_list_is_newest_first_and_needs_the_token(make, text_pdf):
     b = c.post("/api/jobs", files={"file": ("b.pdf", text_pdf.read_bytes())}).json()["id"]
     assert [j["id"] for j in c.get("/api/jobs").json()] == [b, a]
     assert TestClient(c.app).get("/api/jobs").status_code == 401
+
+
+@pytest.fixture
+def clean_proxy_env(monkeypatch):
+    for n in ("HTTPS_PROXY", "HTTP_PROXY", "https_proxy", "http_proxy"):
+        monkeypatch.delenv(n, raising=False)
+    yield
+    # monkeypatch undoes anything the endpoint set only for names it knew about; clear the rest
+    import os
+    for n in ("HTTPS_PROXY", "HTTP_PROXY", "https_proxy", "http_proxy"):
+        os.environ.pop(n, None)
+
+
+def test_proxy_is_applied_hidden_and_clearable(make, clean_proxy_env):
+    import os
+    import httpx
+    c = make()
+    r = c.put("/api/proxy", json={"url": "http://me:s3cret@127.0.0.1:7890"})
+    assert r.status_code == 200 and r.json()["proxy"] == "127.0.0.1:7890"
+    assert "s3cret" not in r.text and "s3cret" not in c.get("/api/config").text
+    assert c.get("/api/config").json()["proxy"] == "127.0.0.1:7890"
+    assert os.environ["HTTPS_PROXY"] == "http://me:s3cret@127.0.0.1:7890"
+    assert httpx.Client()._mounts  # the provider SDKs build their clients like this
+    assert c.put("/api/proxy", json={"url": ""}).json() == {"proxy": ""}
+    assert "HTTPS_PROXY" not in os.environ
+
+
+def test_proxy_address_is_validated_and_needs_the_token(make, clean_proxy_env):
+    c = make()
+    for bad in ("127.0.0.1:7890", "ftp://h:1", "http://", "not a url"):
+        assert c.put("/api/proxy", json={"url": bad}).status_code == 400, bad
+    assert TestClient(c.app).put("/api/proxy", json={"url": "http://h:1"}).status_code == 401

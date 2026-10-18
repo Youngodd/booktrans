@@ -3,6 +3,7 @@ import asyncio
 import os
 import secrets
 import time
+from urllib.parse import urlsplit
 from concurrent.futures import ProcessPoolExecutor
 from pathlib import Path
 
@@ -54,6 +55,10 @@ class StorageUpload(BaseModel):
 class KeyRequest(BaseModel):
     api_key: str
     provider: str = "api"
+
+
+class ProxyRequest(BaseModel):
+    url: str = ""  # http(s)://[user:password@]host:port; empty = use the system settings
 
 
 class LoginRequest(BaseModel):
@@ -165,7 +170,8 @@ def create_app(data_dir=None, *, executor=None, backend_factory=jobs.default_bac
     @app.get("/api/config")
     def config():
         return {"email_enabled": mailer.configured(), "desktop": desktop,
-                "has_key": bool(session.get("key")), "provider": session.get("provider", "")}
+                "has_key": bool(session.get("key")), "provider": session.get("provider", ""),
+                "proxy": session.get("proxy", "")}
 
     if desktop:
         @app.put("/api/key")
@@ -180,6 +186,29 @@ def create_app(data_dir=None, *, executor=None, backend_factory=jobs.default_bac
                 raise HTTPException(502, "Could not reach the provider. Check your network or proxy.")
             session.update(key=key, provider=req.provider)
             return {"ok": True, "provider": req.provider}
+
+        @app.put("/api/proxy")
+        def set_proxy(req: ProxyRequest):
+            """Send the provider calls through a proxy (the SDKs read these variables when a
+            job starts). Empty clears it. The page only ever sees host:port, not credentials."""
+            url = req.url.strip()
+            names = ("HTTPS_PROXY", "HTTP_PROXY", "https_proxy", "http_proxy")
+            if not url:
+                for n in names:
+                    os.environ.pop(n, None)
+                session.pop("proxy", None)
+                return {"proxy": ""}
+            try:
+                parts = urlsplit(url)
+                host, port = parts.hostname, parts.port
+            except ValueError:
+                host = None
+            if parts.scheme not in ("http", "https") or not host:
+                raise HTTPException(400, "Use a proxy address like http://127.0.0.1:7890")
+            for n in names:
+                os.environ[n] = url
+            session["proxy"] = f"{host}:{port}" if port else host
+            return {"proxy": session["proxy"]}
 
         @app.delete("/api/key")
         def clear_key():

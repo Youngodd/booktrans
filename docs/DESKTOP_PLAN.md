@@ -222,6 +222,11 @@ Built on this branch:
 - [x] Desktop API: `GET /api/jobs` (the page reopens the newest book). Shell: `reveal`, `open_url` (allow-list).
 - [x] `packaging/ui_check.py` drives the real window on macOS: first run, key saved, book reopened, name review,
       translated. Passes. Not run in CI (needs a desktop session).
-- [ ] Not done: model and OCR model pickers, proxy setting, per-provider cost figures, spend guard, UI language
-      switch (the page shows Chinese and English together, as the hosted page does), native save dialog and
+- [x] Proxy setting (first-run and Settings): `PUT /api/proxy` sets the proxy variables the provider SDKs read at job
+      start; the shell keeps the address in the credential store (it may hold a password) and restores it at start-up;
+      the page only sees host:port. Empty means the system settings. HTTP(S) proxies only; SOCKS is not supported.
+- [x] Default provider by system language: a `zh-CN`/`zh` system starts on Qwen (China), others on Anthropic
+      (open question 5, decided).
+- [x] UI language: the page keeps Chinese and English together (open question 4, decided: acceptable).
+- [ ] Not done: model and OCR model pickers, per-provider cost figures, spend guard, native save dialog and
       "show in folder" (needs a person at the screen), Windows window check.
