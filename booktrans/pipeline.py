@@ -12,6 +12,10 @@ from .readers import parse_range, read_book
 from .translate import load_cache, translate_all
 from .writer import make_pdf
 
+class Cancelled(Exception):
+    """Raised by a `progress` callback to stop translate_book; the cache keeps finished pages."""
+
+
 MIN_TEXT_CHARS = 20  # PDF pages with less text than this are treated as scans
 
 

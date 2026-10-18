@@ -7,9 +7,10 @@ from concurrent.futures import ProcessPoolExecutor
 from pathlib import Path
 
 from fastapi import Depends, FastAPI, File, Header, HTTPException, Request, UploadFile
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, JSONResponse
 from pydantic import BaseModel
 
+from ..backends.base import AuthError, BackendError
 from ..pipeline import total_pages
 from ..readers import parse_range
 from .. import glossary as glossary_mod
@@ -25,7 +26,7 @@ WEB_PROVIDERS = ("api", "qwen", "qwen-intl", "deepseek")  # bring-your-own-key s
 
 
 class StartRequest(BaseModel):
-    api_key: str
+    api_key: str = ""  # desktop mode: omitted, the key comes from PUT /api/key
     provider: str = "api"
     pages: str = ""
     preview: bool = False
@@ -35,7 +36,7 @@ class StartRequest(BaseModel):
 
 
 class DraftRequest(BaseModel):
-    api_key: str
+    api_key: str = ""
     provider: str = "api"
     pages: str = ""
     preview: bool = False
@@ -50,6 +51,11 @@ class StorageUpload(BaseModel):
     filename: str
 
 
+class KeyRequest(BaseModel):
+    api_key: str
+    provider: str = "api"
+
+
 class LoginRequest(BaseModel):
     code: str
 
@@ -61,7 +67,8 @@ def _setting(value, env, default):
 
 def create_app(data_dir=None, *, executor=None, backend_factory=jobs.default_backend,
                max_upload_mb=None, max_pages=None, retention_hours=None, secret=None,
-               openid_lookup=auth.wechat_openid, send_mail=mailer.send_pdf, cloud=wxcloud):
+               openid_lookup=auth.wechat_openid, send_mail=mailer.send_pdf, cloud=wxcloud,
+               desktop=False, token=None):
     """Build the app. `executor` runs jobs (default: a pool of worker processes).
 
     Mini program users log in with `POST /api/login` and send the returned token as
@@ -69,18 +76,37 @@ def create_app(data_dir=None, *, executor=None, backend_factory=jobs.default_bac
     (the web page) keep working on jobs that have no owner. `secret` signs the tokens
     (default: BOOKTRANS_SECRET). Finished jobs can be emailed with `send_mail`.
 
+    desktop=True builds the single-user desktop app: every /api request must carry the
+    per-launch `token` in the X-Booktrans-Token header, there is no upload or page cap, jobs
+    are never deleted by age, original file names are kept, jobs a closed app left running
+    are reset to "paused", and the API key is set once with PUT /api/key (kept in memory
+    only) instead of being sent with each request. The hosted service is unchanged.
+
     Limits come from the arguments, else BOOKTRANS_MAX_UPLOAD_MB (60),
     BOOKTRANS_MAX_PAGES (400) and BOOKTRANS_RETENTION_HOURS (24).
     """
-    max_upload_mb = _setting(max_upload_mb, "BOOKTRANS_MAX_UPLOAD_MB", 60)
-    max_pages = _setting(max_pages, "BOOKTRANS_MAX_PAGES", 400)
+    if desktop and not token:
+        raise ValueError("desktop mode needs a token")
+    max_upload_mb = 1 << 20 if desktop else _setting(max_upload_mb, "BOOKTRANS_MAX_UPLOAD_MB", 60)
+    max_pages = 1 << 30 if desktop else _setting(max_pages, "BOOKTRANS_MAX_PAGES", 400)
     retention_hours = _setting(retention_hours, "BOOKTRANS_RETENTION_HOURS", 24)
     data_dir = data_dir or os.environ.get("BOOKTRANS_DATA", "data")
-    store = JobStore(Path(data_dir) / "jobs")
+    store = JobStore(Path(data_dir) / "jobs", keep_names=desktop)
+    session = {}  # desktop: this session's API key and provider, in memory only
     executor = executor or ProcessPoolExecutor(int(os.environ.get("BOOKTRANS_WORKERS", "2")))
     secret = secret or os.environ.get("BOOKTRANS_SECRET") or secrets.token_hex(32)
     app = FastAPI(title="Book translator", docs_url=None, redoc_url=None)
     app.state.store = store
+
+    if desktop:
+        store.reset_interrupted()
+
+        @app.middleware("http")
+        async def require_token(request: Request, call_next):
+            if request.url.path.startswith("/api/") and not secrets.compare_digest(
+                    request.headers.get("x-booktrans-token", "").encode(), token.encode()):
+                return JSONResponse({"detail": "Missing or wrong app token."}, status_code=401)
+            return await call_next(request)
 
     def drop_stored_result(job):
         """An expired job's finished PDF also lives in cloud storage; remove it there too."""
@@ -90,6 +116,8 @@ def create_app(data_dir=None, *, executor=None, backend_factory=jobs.default_bac
 
     @app.on_event("startup")
     async def _cleanup():
+        if desktop:
+            return  # jobs and resume caches live until the user deletes them
         """Delete expired jobs now and then every hour while the server runs."""
         def sweep():
             store.cleanup(retention_hours * 3600, drop_stored_result)
@@ -136,7 +164,35 @@ def create_app(data_dir=None, *, executor=None, backend_factory=jobs.default_bac
 
     @app.get("/api/config")
     def config():
-        return {"email_enabled": mailer.configured()}
+        return {"email_enabled": mailer.configured(), "desktop": desktop,
+                "has_key": bool(session.get("key")), "provider": session.get("provider", "")}
+
+    if desktop:
+        @app.put("/api/key")
+        def set_key(req: KeyRequest):
+            """Hold the key for this session. The shell keeps the stored copy; it is never echoed."""
+            key = check_key(req.api_key, req.provider)
+            try:
+                backend_factory(key, req.provider).complete("Reply with OK.", "OK", max_tokens=1)
+            except AuthError:
+                raise HTTPException(401, "The provider rejected this key.")
+            except BackendError:
+                raise HTTPException(502, "Could not reach the provider. Check your network or proxy.")
+            session.update(key=key, provider=req.provider)
+            return {"ok": True, "provider": req.provider}
+
+        @app.delete("/api/key")
+        def clear_key():
+            session.clear()
+            return {"ok": True}
+
+        @app.post("/api/jobs/{job_id}/cancel")
+        def cancel(job_id: str):
+            job = get_job(job_id)
+            if job["state"] not in ACTIVE:
+                raise HTTPException(409, "This job is not running.")
+            (store.dir(job_id) / "cancel").write_text("1")
+            return public(job)
 
     @app.get("/healthz")
     def healthz():
@@ -175,6 +231,10 @@ def create_app(data_dir=None, *, executor=None, backend_factory=jobs.default_bac
         return public(get_job(job_id, viewer))
 
     def check_key(api_key, provider):
+        if desktop and not api_key:
+            api_key, provider = session.get("key", ""), session.get("provider", provider)
+            if not api_key:
+                raise HTTPException(400, "Add your API key in Settings first.")
         key = api_key.strip()
         if provider not in WEB_PROVIDERS:
             raise HTTPException(400, "Unknown provider.")

@@ -21,15 +21,17 @@ PREVIEW_PAGES = 3
 
 
 class JobStore:
-    def __init__(self, root):
+    def __init__(self, root, keep_names=False):
         self.root = Path(root)
+        self.keep_names = keep_names  # desktop: keep the original (e.g. Chinese) file name
         self.root.mkdir(parents=True, exist_ok=True)
 
     def new(self, filename, **fields):
         job_id = secrets.token_urlsafe(16)  # 22 characters
         (self.root / job_id).mkdir()
         ext = Path(filename).suffix.lower()
-        self.write(job_id, id=job_id, filename=SAFE_NAME.sub("_", Path(filename).name)[:120],
+        name = Path(filename).name if self.keep_names else SAFE_NAME.sub("_", Path(filename).name)
+        self.write(job_id, id=job_id, filename=name[:120],
                    ext=ext, state="uploaded", stage="", done=0, total=0, error="",
                    created=time.time(), **fields)
         return job_id
@@ -63,6 +65,17 @@ class JobStore:
         path = self.dir(job_id)
         if path:
             shutil.rmtree(path, ignore_errors=True)
+
+    def reset_interrupted(self):
+        """Mark jobs left queued/running by a closed app as paused; returns how many."""
+        n = 0
+        for path in self.root.iterdir():
+            job = self.read(path.name) if path.is_dir() else None
+            if job and job.get("state") in ("queued", "running"):
+                self.write(path.name, state="paused", stage="", error="")
+                (path / "cancel").unlink(missing_ok=True)
+                n += 1
+        return n
 
     def cleanup(self, max_age_s, on_expire=None):
         """Delete jobs not touched for max_age_s seconds; returns how many.
@@ -125,7 +138,7 @@ def run_glossary_draft(root, job_id, api_key, backend_factory=default_backend, p
 def run_job(root, job_id, api_key, backend_factory=default_backend, provider="api",
             send_mail=None):
     """Run one job to the end. Executed in a worker process (or thread, in tests)."""
-    from ..pipeline import translate_book
+    from ..pipeline import Cancelled, translate_book
     store = JobStore(root)
     job = store.read(job_id)
     if job is None:
@@ -133,6 +146,8 @@ def run_job(root, job_id, api_key, backend_factory=default_backend, provider="ap
     path = store.dir(job_id)
 
     def progress(stage, done, total):
+        if (path / "cancel").exists():  # set by the desktop app's Cancel button
+            raise Cancelled()
         store.write(job_id, state="running", stage=stage, done=done, total=total)
 
     translator = None
@@ -152,6 +167,9 @@ def run_job(root, job_id, api_key, backend_factory=default_backend, provider="ap
                 store.write(job_id, email_state="sent")
             except Exception:  # the PDF is still downloadable; just record the failure
                 store.write(job_id, email_state="failed")
+    except Cancelled:  # finished pages stay in the cache; Start continues from there
+        (path / "cancel").unlink(missing_ok=True)
+        store.write(job_id, state="paused", stage="", usage=translator.usage.as_dict() if translator else {})
     except BaseException as e:  # report every failure to the browser, never lose the job
         usage = translator.usage.as_dict() if translator else {}
         store.write(job_id, state="failed", error=_failure_text(e, api_key), usage=usage, finished=time.time())
