@@ -53,11 +53,30 @@ jobs:
           python packaging/smoke_test.py --bundle dist/booktrans-sidecar \
             dist/booktrans-sidecar/booktrans-sidecar.exe 2>&1 | tee smoke.txt
           { echo "### Desktop sidecar (Windows)"; echo '```'; cat smoke.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+      - name: Shell prototype (pywebview) - key flow and orphan check
+        shell: bash
+        run: |
+          python -m pip install pywebview keyring
+          export BOOKTRANS_SIDECAR="$PWD/dist/booktrans-sidecar/booktrans-sidecar.exe"
+          export BOOKTRANS_FAKE_BACKEND=1
+          python -m booktrans.desktop.shell --headless-check 2>&1 | tee shell.txt
+          python packaging/orphan_test.py python -m booktrans.desktop.shell 2>&1 | tee -a shell.txt
+      - name: Build shell prototype
+        shell: bash
+        run: |
+          python -m PyInstaller --noconfirm --onedir --name booktrans-shell \
+            --collect-submodules booktrans --collect-submodules webview \
+            --hidden-import keyring.backends.Windows --hidden-import clr \
+            --exclude-module tkinter --exclude-module matplotlib --exclude-module scipy \
+            packaging/shell_entry.py 2>&1 | tee shell-build.txt
+          { echo "### Shell prototype (pywebview)"; echo '```';
+            python -c "import pathlib;d=pathlib.Path('dist/booktrans-shell');print('shell bundle (without sidecar): %d MB' % (sum(f.stat().st_size for f in d.rglob('*') if f.is_file())/1e6))";
+            tail -n 3 shell.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
       - name: Build and smoke failures as annotations
         if: failure()
         shell: bash
         run: |
-          for f in build.txt smoke.txt; do
+          for f in build.txt smoke.txt shell.txt shell-build.txt; do
             [ -f "$f" ] && tail -n 15 "$f" | cut -c1-300 | while read -r l; do echo "::error title=$f::$l"; done
           done
           true

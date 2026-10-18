@@ -18,7 +18,7 @@ computer. No server of ours, no key or book leaves the machine except to the cho
 | Providers | Anthropic (`api`), Qwen (`qwen`, `qwen-intl`), DeepSeek (`deepseek`). `claude-cli` hidden. |
 | Engine | The existing Python package, unchanged where possible. |
 | License | AGPL-3.0, because PyMuPDF is bundled ([ADR 0003](adr/0003-license-desktop-app-under-agpl.md)). |
-| Shell | Open. Tauri vs pywebview, decided by the M0 spike. |
+| Shell | pywebview for the MVP (recommended in [SHELL_COMPARISON.md](SHELL_COMPARISON.md); to be confirmed by the Windows CI results). Tauri stays possible: the shell only talks HTTP to the sidecar. |
 
 ## What exists and what changes
 
@@ -201,3 +201,10 @@ Windows runner and (for M4) a certificate and a decision on paying for one.
       PDF contains Chinese text).
 - Checked locally on macOS only: the same build and smoke test pass. The bundle is 353 MB there, well above
   the 100-150 MB guess above; the Windows number will come from CI.
+
+### Shell comparison (M0)
+
+- [x] pywebview prototype `booktrans/desktop/shell.py` with key flow, credential store and Windows job object.
+- [x] Written comparison and recommendation: [SHELL_COMPARISON.md](SHELL_COMPARISON.md). Tauri was assessed from
+      documentation only; no Tauri build was made.
+- [ ] Windows CI results for the shell (orphan test, keyring, bundle size). Not yet run.

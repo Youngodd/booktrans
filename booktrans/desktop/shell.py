@@ -1,0 +1,208 @@
+"""Desktop shell (pywebview prototype): start the sidecar, keep the API key in the OS
+credential store, hand the key to the sidecar once per session, show the window.
+
+python -m booktrans.desktop.shell                 open the app window
+python -m booktrans.desktop.shell --headless-check  everything except the window (CI)
+
+BOOKTRANS_SIDECAR can name the sidecar program (default: this Python running
+`-m booktrans.desktop`). The sidecar must not outlive the shell: on Windows it is put in a
+job object that kills it when the shell exits, however the shell ends.
+"""
+import os
+import re
+import shutil
+import subprocess
+import sys
+import threading
+import time
+
+import httpx
+
+SERVICE = "BookTranslator"
+ACCOUNT = "api-key"  # the stored secret is "<provider>:<key>"
+
+
+def sidecar_command():
+    exe = os.environ.get("BOOKTRANS_SIDECAR")
+    return [exe] if exe else [sys.executable, "-m", "booktrans.desktop"]
+
+
+def _kill_with_parent_on_windows(proc):
+    """Windows: make the OS kill `proc` when this process ends (even if it is killed)."""
+    import ctypes
+    from ctypes import wintypes
+
+    k32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    k32.CreateJobObjectW.restype = wintypes.HANDLE
+    job = k32.CreateJobObjectW(None, None)
+
+    class BASIC(ctypes.Structure):
+        _fields_ = [("PerProcessUserTimeLimit", ctypes.c_int64), ("PerJobUserTimeLimit", ctypes.c_int64),
+                    ("LimitFlags", wintypes.DWORD), ("MinimumWorkingSetSize", ctypes.c_size_t),
+                    ("MaximumWorkingSetSize", ctypes.c_size_t), ("ActiveProcessLimit", wintypes.DWORD),
+                    ("Affinity", ctypes.c_size_t), ("PriorityClass", wintypes.DWORD),
+                    ("SchedulingClass", wintypes.DWORD)]
+
+    class IO(ctypes.Structure):
+        _fields_ = [(n, ctypes.c_uint64) for n in ("a", "b", "c", "d", "e", "f")]
+
+    class EXTENDED(ctypes.Structure):
+        _fields_ = [("BasicLimitInformation", BASIC), ("IoInfo", IO),
+                    ("ProcessMemoryLimit", ctypes.c_size_t), ("JobMemoryLimit", ctypes.c_size_t),
+                    ("PeakProcessMemoryUsed", ctypes.c_size_t), ("PeakJobMemoryUsed", ctypes.c_size_t)]
+
+    info = EXTENDED()
+    info.BasicLimitInformation.LimitFlags = 0x2000  # JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE
+    ok = k32.SetInformationJobObject(job, 9, ctypes.byref(info), ctypes.sizeof(info))
+    ok = ok and k32.AssignProcessToJobObject(job, wintypes.HANDLE(int(proc._handle)))
+    if not ok:
+        raise OSError(ctypes.get_last_error(), "could not put the sidecar in a job object")
+    return job  # keep a reference: closing the handle (process exit) kills the sidecar
+
+
+class Sidecar:
+    def __init__(self):
+        self.proc = self.base = self.token = self._job = None
+        self.log = []
+
+    def start(self, timeout=90):
+        self.proc = subprocess.Popen(sidecar_command(), stdout=subprocess.PIPE,
+                                     stderr=subprocess.STDOUT, text=True, encoding="utf-8")
+        if os.name == "nt":
+            self._job = _kill_with_parent_on_windows(self.proc)
+        threading.Thread(target=lambda: [self.log.append(l) for l in self.proc.stdout],
+                         daemon=True).start()
+        end = time.time() + timeout
+        while time.time() < end:
+            m = re.search(r"port=(\d+) token=(\S+)", "".join(self.log))
+            if m:
+                break
+            if self.proc.poll() is not None:
+                raise RuntimeError("sidecar exited early:\n" + "".join(self.log))
+            time.sleep(0.1)
+        else:
+            raise RuntimeError("sidecar did not start")
+        self.base, self.token = f"http://127.0.0.1:{m[1]}", m[2]
+        self.http = httpx.Client(base_url=self.base, headers={"X-Booktrans-Token": self.token},
+                                 timeout=60)
+        while time.time() < end:  # the ready line comes just before the server listens
+            try:
+                self.http.get("/healthz")
+                return self
+            except httpx.TransportError:
+                time.sleep(0.1)
+        raise RuntimeError("sidecar did not answer")
+
+    def stop(self):
+        if self.proc and self.proc.poll() is None:
+            self.proc.terminate()
+            try:
+                self.proc.wait(5)
+            except subprocess.TimeoutExpired:
+                self.proc.kill()
+
+
+def stored_key():
+    """(provider, key) from the credential store, or None."""
+    import keyring
+    value = keyring.get_password(SERVICE, ACCOUNT)
+    provider, _, key = (value or "").partition(":")
+    return (provider, key) if key else None
+
+
+class Api:
+    """Methods the page can call as window.pywebview.api.<name>(...). The key never goes
+    back to the page: it only moves between the credential store and the sidecar."""
+
+    def __init__(self, sidecar):
+        self.sidecar = sidecar
+        self.window = None
+
+    def connection(self):
+        return {"base": self.sidecar.base, "token": self.sidecar.token}
+
+    def has_key(self):
+        found = stored_key()
+        return {"has_key": bool(found), "provider": found[0] if found else ""}
+
+    def use_stored_key(self):
+        """Give the stored key to the sidecar for this session; call once at start-up."""
+        found = stored_key()
+        if not found:
+            return {"ok": False, "error": "no stored key"}
+        return self._push(*found)
+
+    def save_key(self, provider, key):
+        """Check the key with the provider (via the sidecar); store it only if it passes."""
+        result = self._push(provider, key)
+        if result["ok"]:
+            import keyring
+            keyring.set_password(SERVICE, ACCOUNT, f"{provider}:{key}")
+        return result
+
+    def delete_key(self):
+        import keyring
+        try:
+            keyring.delete_password(SERVICE, ACCOUNT)
+        except keyring.errors.PasswordDeleteError:
+            pass
+        self.sidecar.http.delete("/api/key")
+        return {"ok": True}
+
+    def _push(self, provider, key):
+        r = self.sidecar.http.put("/api/key", json={"api_key": key, "provider": provider})
+        return {"ok": r.status_code == 200, "status": r.status_code,
+                "error": "" if r.status_code == 200 else r.json().get("detail", "")}
+
+    def save_pdf(self, job_id, suggested_name):
+        """Ask where to save the finished PDF, then copy it there."""
+        import webview
+        dest = self.window.create_file_dialog(webview.SAVE_DIALOG, save_filename=suggested_name,
+                                              file_types=("PDF (*.pdf)",))
+        if not dest:
+            return {"ok": False}
+        dest = dest if isinstance(dest, str) else dest[0]
+        r = self.sidecar.http.get(f"/api/jobs/{job_id}/download")
+        with open(dest, "wb") as f:
+            f.write(r.content)
+        return {"ok": r.status_code == 200, "path": dest}
+
+
+def headless_check():
+    """Start the sidecar and exercise the key flow without opening a window."""
+    side = Sidecar().start()
+    api = Api(side)
+    print("sidecar pid", side.proc.pid)
+    assert api.save_key("api", "sk-ant-shell-check-key-000000")["ok"], "key was not accepted"
+    assert api.has_key() == {"has_key": True, "provider": "api"}
+    side.http.delete("/api/key")  # a fresh session: the sidecar has forgotten the key...
+    assert not side.http.get("/api/config").json()["has_key"]
+    assert api.use_stored_key()["ok"]  # ...and the shell hands it over again
+    assert side.http.get("/api/config").json()["has_key"]
+    api.delete_key()
+    assert api.has_key()["has_key"] is False
+    print("SHELL OK: key stored, handed to the sidecar, deleted")
+    if "--hold" in sys.argv:  # CI: stay alive so the test can kill this process
+        print("HOLDING", flush=True)
+        time.sleep(600)
+    side.stop()
+
+
+def main():
+    if "--headless-check" in sys.argv:
+        return headless_check()
+    import webview
+    side = Sidecar().start()
+    api = Api(side)
+    api.use_stored_key()
+    # TODO(M2): the page must send the token header; the prototype only opens it.
+    api.window = webview.create_window("Book Translator", f"{side.base}/#token={side.token}",
+                                       js_api=api, width=1000, height=760)
+    try:
+        webview.start()
+    finally:
+        side.stop()
+
+
+if __name__ == "__main__":
+    main()
