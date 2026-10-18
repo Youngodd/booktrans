@@ -21,11 +21,14 @@ SolidCompression=yes
 ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
 WizardStyle=modern
+LicenseFile=..\LICENSE
 UninstallDisplayName=Book Translator
 UninstallDisplayIcon={app}\BookTranslator.exe
 
 [Files]
 Source: "..\dist\BookTranslator\*"; DestDir: "{app}"; Flags: recursesubdirs createallsubdirs ignoreversion
+Source: "..\LICENSE"; DestDir: "{app}"; Flags: ignoreversion
+Source: "..\docs\THIRD_PARTY.md"; DestDir: "{app}"; DestName: "THIRD_PARTY.txt"; Flags: ignoreversion
 
 [Icons]
 Name: "{autoprograms}\Book Translator"; Filename: "{app}\BookTranslator.exe"

@@ -183,4 +183,6 @@ python -m pytest tests
 
 ## License
 
-MIT. This covers the code only; make sure you have the right to translate any book you process.
+GNU AGPL-3.0 (see `LICENSE`; the reason is PyMuPDF, see `docs/adr/0003-license-desktop-app-under-agpl.md`, and bundled
+licenses are listed in `docs/THIRD_PARTY.md`). Earlier commits were published under MIT. This covers the code only; make
+sure you have the right to translate any book you process.
