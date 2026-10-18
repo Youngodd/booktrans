@@ -231,7 +231,7 @@ Built on this branch:
 - [ ] Not done: model and OCR model pickers, per-provider cost figures, spend guard, native save dialog and
       "show in folder" (needs a person at the screen), Windows window check.
 
-### M3: installer (written, not yet run on Windows)
+### M3: installer (green on Windows CI, commit `64e8416`)
 
 - [x] One program instead of two: `BookTranslator.exe` opens the window; `BookTranslator.exe --sidecar` runs the
       local server (the shell starts a copy of itself). Halves the bundle; the shell finds the server through a
@@ -245,3 +245,10 @@ Built on this branch:
 - Checked on macOS only: the frozen single program passes the smoke test and works as the shell's sidecar.
 - Deviations: `LICENSE` is still MIT and the installer shows no license page; swapping to AGPL-3.0 (ADR 0003) is
   still to do before a release. The installer is English only. WebView2 is assumed present (Windows 10 2018+ and 11).
+
+M3 result on the Windows runner: tests, frozen-app smoke test, shell key flow, orphan check, installer build, silent
+install into a folder with Chinese characters, smoke test of the installed app, window launch (no warning raised, so
+the window process stayed up and started its sidecar) and uninstall all passed. The installer is 87 MB (the plan's
+guess was 100-150 MB installed); the frozen bundle is 257 MB uncompressed. One earlier run failed the frozen-app smoke
+test for an unknown reason and passed on the next run with no code change, so it may be intermittent.
+Not covered by CI: a real window being used (clicks, dialogs), a clean machine without WebView2, SmartScreen (M4).
