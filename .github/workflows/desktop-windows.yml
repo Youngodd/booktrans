@@ -70,6 +70,7 @@ jobs:
       - name: Install, smoke test, launch, uninstall
         shell: bash
         run: |
+          export PYTHONIOENCODING=utf-8
           python packaging/install_check.py installer/BookTranslator-Setup-*.exe 2>&1 | tee install.txt
           { echo "### Installer"; echo '```'; cat install.txt; ls -l installer | tail -n +2; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
       - name: Build and smoke failures as annotations

@@ -10,6 +10,7 @@ import tempfile
 import time
 from pathlib import Path
 
+sys.stdout.reconfigure(encoding="utf-8", errors="replace")  # the install folder has Chinese characters
 here = Path(__file__).resolve().parent
 installer = Path(sys.argv[1]).resolve()
 target = Path(tempfile.gettempdir()) / "安装测试" / "Book Translator"
