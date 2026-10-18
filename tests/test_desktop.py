@@ -137,3 +137,25 @@ def test_hosted_app_has_no_desktop_routes(tmp_path):
     c = TestClient(create_app(tmp_path / "d", executor=ThreadPoolExecutor(1)))
     assert c.put("/api/key", json={"api_key": KEY}).status_code in (404, 405)
     assert c.get("/api/config").json().get("desktop") is False
+
+
+def test_desktop_serves_its_own_page_and_hosted_keeps_the_old_one(make, tmp_path):
+    page = make().get("/").text
+    assert "X-Booktrans-Token" in page and "AGPL" in page
+    hosted = TestClient(create_app(tmp_path / "h", executor=ThreadPoolExecutor(1))).get("/").text
+    assert "X-Booktrans-Token" not in hosted and "Book Translator" in hosted
+
+
+def test_page_never_reads_or_stores_the_key(make):
+    page = make().get("/").text
+    assert "localStorage" not in page and "sessionStorage" not in page
+    assert "api_key: $" not in page  # keys travel via the shell or PUT /api/key only
+
+
+def test_job_list_is_newest_first_and_needs_the_token(make, text_pdf):
+    c = make()
+    a = c.post("/api/jobs", files={"file": ("a.pdf", text_pdf.read_bytes())}).json()["id"]
+    time.sleep(0.02)
+    b = c.post("/api/jobs", files={"file": ("b.pdf", text_pdf.read_bytes())}).json()["id"]
+    assert [j["id"] for j in c.get("/api/jobs").json()] == [b, a]
+    assert TestClient(c.app).get("/api/jobs").status_code == 401

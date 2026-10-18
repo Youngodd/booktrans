@@ -210,3 +210,18 @@ Windows runner and (for M4) a certificate and a decision on paying for one.
 - [x] Windows CI (run on `2b0cdcf`, all steps green): the key flow through the real Windows credential store,
       the orphan test (sidecar ended when the shell was killed) and the PyInstaller build of the shell passed.
       The shell bundle size is in that run's job summary; not yet copied here.
+
+### M2: shell and screens (in progress)
+
+Built on this branch:
+- [x] `web/static/desktop.html`, served as `/` in desktop mode (the hosted page is untouched): first-run key screen
+      with provider and Qwen region, how-to-get-a-key links per provider, privacy and copyright note; Settings
+      (replace or delete the key, switch provider); optional name review before translating; progress with
+      Cancel, Pause state and Continue; save dialog and "show in folder"; About with the AGPL source link.
+      The page sends the per-launch token on every call and never stores or reads the key.
+- [x] Desktop API: `GET /api/jobs` (the page reopens the newest book). Shell: `reveal`, `open_url` (allow-list).
+- [x] `packaging/ui_check.py` drives the real window on macOS: first run, key saved, book reopened, name review,
+      translated. Passes. Not run in CI (needs a desktop session).
+- [ ] Not done: model and OCR model pickers, proxy setting, per-provider cost figures, spend guard, UI language
+      switch (the page shows Chinese and English together, as the hosted page does), native save dialog and
+      "show in folder" (needs a person at the screen), Windows window check.

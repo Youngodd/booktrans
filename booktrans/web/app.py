@@ -186,6 +186,13 @@ def create_app(data_dir=None, *, executor=None, backend_factory=jobs.default_bac
             session.clear()
             return {"ok": True}
 
+        @app.get("/api/jobs")
+        def list_jobs():
+            """Every job on this computer, newest first (the page reopens the latest one)."""
+            found = [store.read(p.name) for p in store.root.iterdir() if p.is_dir()]
+            return sorted((public(j) | {"created": j.get("created", 0)} for j in found if j),
+                          key=lambda j: j["created"], reverse=True)
+
         @app.post("/api/jobs/{job_id}/cancel")
         def cancel(job_id: str):
             job = get_job(job_id)
@@ -200,7 +207,8 @@ def create_app(data_dir=None, *, executor=None, backend_factory=jobs.default_bac
 
     @app.get("/")
     def index():
-        return FileResponse(STATIC / "index.html", headers={"Cache-Control": "no-store"})
+        page = "desktop.html" if desktop else "index.html"
+        return FileResponse(STATIC / page, headers={"Cache-Control": "no-store"})
 
     @app.post("/api/jobs")
     async def upload(file: UploadFile = File(...), viewer: str = Depends(who)):

@@ -22,6 +22,14 @@ SERVICE = "BookTranslator"
 ACCOUNT = "api-key"  # the stored secret is "<provider>:<key>"
 
 
+KEY_PAGES = {  # pages that explain how to get a key; the only URLs the page may open
+    "https://console.anthropic.com/settings/keys",
+    "https://bailian.console.aliyun.com/?apiKey=1",
+    "https://modelstudio.console.alibabacloud.com/?tab=playground#/api-key",
+    "https://platform.deepseek.com/api_keys",
+}
+
+
 def sidecar_command():
     exe = os.environ.get("BOOKTRANS_SIDECAR")
     return [exe] if exe else [sys.executable, "-m", "booktrans.desktop"]
@@ -114,12 +122,12 @@ class Api:
     """Methods the page can call as window.pywebview.api.<name>(...). The key never goes
     back to the page: it only moves between the credential store and the sidecar."""
 
-    def __init__(self, sidecar):
-        self.sidecar = sidecar
-        self.window = None
+    def __init__(self, sidecar):  # underscore names are not exposed to the page
+        self._sidecar = sidecar
+        self._window = None
 
     def connection(self):
-        return {"base": self.sidecar.base, "token": self.sidecar.token}
+        return {"base": self._sidecar.base, "token": self._sidecar.token}
 
     def has_key(self):
         found = stored_key()
@@ -146,26 +154,45 @@ class Api:
             keyring.delete_password(SERVICE, ACCOUNT)
         except keyring.errors.PasswordDeleteError:
             pass
-        self.sidecar.http.delete("/api/key")
+        self._sidecar.http.delete("/api/key")
         return {"ok": True}
 
     def _push(self, provider, key):
-        r = self.sidecar.http.put("/api/key", json={"api_key": key, "provider": provider})
+        r = self._sidecar.http.put("/api/key", json={"api_key": key, "provider": provider})
         return {"ok": r.status_code == 200, "status": r.status_code,
                 "error": "" if r.status_code == 200 else r.json().get("detail", "")}
 
     def save_pdf(self, job_id, suggested_name):
         """Ask where to save the finished PDF, then copy it there."""
         import webview
-        dest = self.window.create_file_dialog(webview.SAVE_DIALOG, save_filename=suggested_name,
+        dest = self._window.create_file_dialog(webview.SAVE_DIALOG, save_filename=suggested_name,
                                               file_types=("PDF (*.pdf)",))
         if not dest:
             return {"ok": False}
         dest = dest if isinstance(dest, str) else dest[0]
-        r = self.sidecar.http.get(f"/api/jobs/{job_id}/download")
+        r = self._sidecar.http.get(f"/api/jobs/{job_id}/download")
         with open(dest, "wb") as f:
             f.write(r.content)
         return {"ok": r.status_code == 200, "path": dest}
+
+
+    def reveal(self, path):
+        """Show a saved file in the system file manager."""
+        if os.name == "nt":
+            subprocess.run(["explorer", "/select,", os.path.normpath(path)])
+        elif sys.platform == "darwin":
+            subprocess.run(["open", "-R", path])
+        else:
+            subprocess.run(["xdg-open", os.path.dirname(path)])
+        return {"ok": True}
+
+    def open_url(self, url):
+        """Open one of the provider pages the app links to in the user's browser."""
+        import webbrowser
+        if url not in KEY_PAGES:
+            return {"ok": False}
+        webbrowser.open(url)
+        return {"ok": True}
 
 
 def headless_check():
@@ -196,7 +223,7 @@ def main():
     api = Api(side)
     api.use_stored_key()
     # TODO(M2): the page must send the token header; the prototype only opens it.
-    api.window = webview.create_window("Book Translator", f"{side.base}/#token={side.token}",
+    api._window = webview.create_window("Book Translator", f"{side.base}/#token={side.token}",
                                        js_api=api, width=1000, height=760)
     try:
         webview.start()
