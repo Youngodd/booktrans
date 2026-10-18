@@ -8,8 +8,8 @@
   /* Three seeds (base size, scale ratio, line length) and three colours.
      Every other size below is computed from them with calc(). */
   :root {
-    --base: clamp(1rem, 0.94rem + 0.3vw, 1.25rem);
-    --ratio: 1.25;
+    --base: 0.875rem;
+    --ratio: 1.2;
     --measure: 72;                       /* characters per line */
 
     --paper: #f4efe5; --ink: #1d1a16; --accent: #9b4f26;
@@ -73,8 +73,8 @@
   nav a b { color: var(--accent); font-weight: 600; margin-right: var(--s-2); }
 
   /* hero */
-  .hero { padding-block: calc(var(--s5) * var(--ratio)) var(--s3); }
-  .hero h1 { font-size: min(calc(var(--s3) + 3vw), var(--s5)); line-height: var(--lh-tight);
+  .hero { padding-block: var(--s2) var(--s1); }
+  .hero h1 { font-size: var(--s3); line-height: var(--lh-tight);
              font-weight: 500; letter-spacing: -0.02em; margin: var(--s0) 0 var(--s1); }
   .hero h1 em { color: var(--accent); }
   .hero .zh { font-size: var(--s2); color: var(--mute); margin: 0 0 var(--s1); }
@@ -86,7 +86,7 @@
   .facts dd { margin: 0; font-size: var(--s0); line-height: var(--lh-tight); }
 
   /* numbered sections */
-  .step { padding-block: var(--s2); border-top: var(--hair) solid var(--ink); }
+  .step { padding-block: var(--s1); border-top: var(--hair) solid var(--ink); }
   .step > header { display: flex; align-items: baseline; gap: var(--s0); margin-bottom: var(--s1); }
   .step .no { font: 600 var(--s-1) / 1 var(--sans); color: var(--accent); letter-spacing: var(--track); }
   .step h2 { font-size: var(--s3); line-height: var(--lh-tight); font-weight: 500; margin: 0; letter-spacing: -0.01em; }
@@ -177,8 +177,16 @@
        书在本机处理，只有文字会发给你选择的模型供应商，并使用你自己的 API key。</p>
   </section>
 
+  <section class="step" id="step-upload">
+    <header><span class="no">§ 01</span><h2>Choose a book <i>选择书</i></h2></header>
+    <input type="file" id="file" accept=".pdf,.epub,.txt">
+    <p class="hint">PDF / EPUB / TXT</p>
+    <div class="bar hidden" id="upbar"><div></div></div>
+    <p class="msg" id="upmsg"></p>
+  </section>
+
   <section class="step hidden" id="step-key">
-    <header><span class="no">§ 00</span><h2 id="key-title">API key <i>接口密钥</i></h2></header>
+    <header><span class="no">§ 02</span><h2 id="key-title">API key <i>接口密钥</i></h2></header>
     <p class="note" id="first-run-note">Book text is sent to the provider you pick below, and nowhere else; the app has no server and no telemetry.
        You are responsible for having the right to translate the books you use. 书中文字只会发给下面选择的供应商，本应用没有服务器，也不收集数据；请确保你有权翻译所用的书。</p>
     <label for="provider">Model provider 模型供应商</label>
@@ -206,16 +214,8 @@
     <p class="msg err" id="keymsg"></p>
   </section>
 
-  <section class="step" id="step-upload">
-    <header><span class="no">§ 01</span><h2>Choose a book <i>选择书</i></h2></header>
-    <input type="file" id="file" accept=".pdf,.epub,.txt">
-    <p class="hint">PDF / EPUB / TXT</p>
-    <div class="bar hidden" id="upbar"><div></div></div>
-    <p class="msg" id="upmsg"></p>
-  </section>
-
   <section class="step hidden" id="step-setup">
-    <header><span class="no">§ 02</span><h2>Settings <i>设置</i></h2></header>
+    <header><span class="no">§ 03</span><h2>Translation <i>翻译设置</i></h2></header>
     <p id="bookinfo"></p>
     <p class="hint" id="using"></p>
     <label for="pages">Page range 页码范围 <span style="font-weight:400;color:var(--mute)">(optional 可留空)</span></label>
@@ -235,7 +235,7 @@
   </section>
 
   <section class="step hidden" id="step-names">
-    <header><span class="no">§ 02b</span><h2>Names <i>译名核对</i></h2></header>
+    <header><span class="no">§ 03b</span><h2>Names <i>译名核对</i></h2></header>
     <p class="msg" id="namesmsg"></p>
     <div class="names-box"><table class="names" id="names"></table></div>
     <div class="actions">
@@ -245,7 +245,7 @@
   </section>
 
   <section class="step hidden" id="step-run">
-    <header><span class="no">§ 03</span><h2>Progress <i>进度</i></h2></header>
+    <header><span class="no">§ 04</span><h2>Progress <i>进度</i></h2></header>
     <div class="bar"><div id="bar"></div></div>
     <p class="msg" id="stage"></p>
     <p class="msg err" id="runerr"></p>
@@ -335,7 +335,7 @@ function openKeyPanel(first) {
   if (provider) $("provider").value = provider;
   updateKeyForm(); $("keymsg").textContent = "";
   show("step-key", true);
-  $("step-key").scrollIntoView();
+  if (!first) $("step-key").scrollIntoView();
 }
 $("btn-saveproxy").onclick = async () => {
   const url = $("proxy").value.trim();
