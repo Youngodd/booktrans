@@ -125,10 +125,12 @@ def test_cancel_pauses_and_start_continues(make, text_pdf):
     c.post(f"/api/jobs/{up['id']}/start", json={"auto_glossary": False})
     wait(c, up["id"], states=("running",))
     assert c.post(f"/api/jobs/{up['id']}/cancel").status_code == 200
-    assert wait(c, up["id"])["state"] == "paused"
+    j = wait(c, up["id"])
+    assert j["state"] == "paused", j
     assert c.post(f"/api/jobs/{up['id']}/cancel").status_code == 409
     assert c.post(f"/api/jobs/{up['id']}/start", json={"auto_glossary": False}).status_code == 200
-    assert wait(c, up["id"])["state"] == "done"
+    j = wait(c, up["id"])
+    assert j["state"] == "done", j
 
 
 def test_hosted_app_has_no_desktop_routes(tmp_path):

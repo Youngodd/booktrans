@@ -59,7 +59,14 @@ class JobStore:
         job.update(fields)
         tmp = path / "job.json.tmp"
         tmp.write_text(json.dumps(job), encoding="utf-8")
-        os.replace(tmp, path / "job.json")
+        for attempt in range(50):  # Windows refuses to replace a file a reader has open
+            try:
+                os.replace(tmp, path / "job.json")
+                break
+            except PermissionError:
+                if attempt == 49:
+                    raise
+                time.sleep(0.02)
 
     def delete(self, job_id):
         path = self.dir(job_id)
