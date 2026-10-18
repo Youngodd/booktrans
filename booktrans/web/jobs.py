@@ -46,7 +46,7 @@ class JobStore:
     def read(self, job_id):
         path = self.dir(job_id)
         try:
-            return json.loads((path / "job.json").read_text()) if path else None
+            return json.loads((path / "job.json").read_text(encoding="utf-8")) if path else None
         except (OSError, ValueError):
             return None
 
@@ -55,10 +55,10 @@ class JobStore:
         path = self.root / job_id
         job = {}
         if (path / "job.json").exists():
-            job = json.loads((path / "job.json").read_text())
+            job = json.loads((path / "job.json").read_text(encoding="utf-8"))
         job.update(fields)
         tmp = path / "job.json.tmp"
-        tmp.write_text(json.dumps(job))
+        tmp.write_text(json.dumps(job), encoding="utf-8")
         os.replace(tmp, path / "job.json")
 
     def delete(self, job_id):

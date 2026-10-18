@@ -24,7 +24,7 @@ def ocr_scanned_pages(backend, book, idx, pages, scanned, cache_path, progress=N
         if key not in cache:
             print(f"OCR page {idx[n] + 1} ({k}/{len(scanned)})...", flush=True)
             cache[key] = ocr_page(backend, book, idx[n])
-            cache_path.write_text(json.dumps(cache, ensure_ascii=False))
+            cache_path.write_text(json.dumps(cache, ensure_ascii=False), encoding="utf-8")
         pages[n] = cache[key]
         if progress:
             progress("ocr", k, len(scanned))

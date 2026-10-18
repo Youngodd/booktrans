@@ -172,6 +172,7 @@ def test_provider_is_checked_and_passed_to_the_backend(make_client, text_pdf):
     assert c.post(url, json={"api_key": KEY, "provider": "nope"}).status_code == 400
     assert c.post(url, json={"api_key": "short", "provider": "qwen"}).status_code == 400
     assert c.post(url, json={"api_key": "sk-abcdefgh", "provider": "qwen"}).status_code == 200
+    wait(c, job["id"])  # the worker thread calls the factory after the request returns
     assert seen == ["qwen"]
 
 

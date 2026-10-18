@@ -35,7 +35,7 @@ def test_blocks_context_in_prompt(fake):
 def test_translate_all_caches_and_resumes(fake, tmp_path):
     cp = tmp_path / "c.json"; cache = {}
     t = translate_all(fake, [0, 1], ["a", "b"], {}, {}, cache, cp)
-    assert t == ["译:a", "译:b"] and json.loads(cp.read_text()) == cache
+    assert t == ["译:a", "译:b"] and json.loads(cp.read_text(encoding="utf-8")) == cache
     n = len(fake.calls)
     translate_all(fake, [0, 1], ["a", "b"], {}, {}, load_cache(cp), cp)
     assert len(fake.calls) == n

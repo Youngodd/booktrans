@@ -35,7 +35,7 @@ class Usage:
         if self.cost_usd:
             print("Reported cost (this run): $%.4f" % self.cost_usd)
         path = out.with_suffix(".usage.json")
-        runs = json.loads(path.read_text()) if path.exists() else []
+        runs = json.loads(path.read_text(encoding="utf-8")) if path.exists() else []
         runs.append(self.as_dict())
-        path.write_text(json.dumps(runs, indent=2))
+        path.write_text(json.dumps(runs, indent=2), encoding="utf-8")
         print(f"Usage log: {path}")

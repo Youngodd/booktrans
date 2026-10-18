@@ -24,11 +24,11 @@ def complete(backend, system, text, max_tokens):
 
 
 def load_cache(path):
-    return json.loads(path.read_text()) if path.exists() else {}
+    return json.loads(path.read_text(encoding="utf-8")) if path.exists() else {}
 
 
 def save_cache(path, cache):
-    path.write_text(json.dumps(cache, ensure_ascii=False))  # resumable
+    path.write_text(json.dumps(cache, ensure_ascii=False), encoding="utf-8")  # resumable
 
 
 def with_glossary(system, glossary, text):

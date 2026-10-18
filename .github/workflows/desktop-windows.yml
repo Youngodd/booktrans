@@ -28,7 +28,15 @@ jobs:
         run: |
           python -m pip install -r requirements-web.txt -r requirements-dev.txt pyinstaller
       - name: Tests
-        run: python -m pytest -q
+        shell: bash
+        run: |
+          python -m pytest -q -rf --tb=short -W ignore::DeprecationWarning 2>&1 | tee test.txt
+      - name: Test failures as annotations
+        if: failure()
+        shell: bash
+        run: |
+          grep -E "^(FAILED|ERROR)" test.txt | head -40 | cut -c1-300 | while read -r l; do echo "::error title=pytest::$l"; done
+          tail -n 3 test.txt | cut -c1-300 | while read -r l; do echo "::error title=pytest summary::$l"; done
       - name: Build sidecar
         shell: bash
         run: |
@@ -38,13 +46,21 @@ jobs:
             --hidden-import fitz \
             --exclude-module tkinter --exclude-module matplotlib --exclude-module scipy \
             --exclude-module pytest --exclude-module IPython \
-            packaging/sidecar_entry.py
+            packaging/sidecar_entry.py 2>&1 | tee build.txt
       - name: Smoke test the frozen build
         shell: bash
         run: |
           python packaging/smoke_test.py --bundle dist/booktrans-sidecar \
-            dist/booktrans-sidecar/booktrans-sidecar.exe | tee smoke.txt
+            dist/booktrans-sidecar/booktrans-sidecar.exe 2>&1 | tee smoke.txt
           { echo "### Desktop sidecar (Windows)"; echo '```'; cat smoke.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+      - name: Build and smoke failures as annotations
+        if: failure()
+        shell: bash
+        run: |
+          for f in build.txt smoke.txt; do
+            [ -f "$f" ] && tail -n 15 "$f" | cut -c1-300 | while read -r l; do echo "::error title=$f::$l"; done
+          done
+          true
       - name: Largest packages in the bundle
         shell: bash
         run: |

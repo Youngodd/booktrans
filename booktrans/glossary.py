@@ -85,11 +85,11 @@ def parse_file(path):
 
 
 def load(path):
-    return json.loads(path.read_text()) if path.exists() else {}
+    return json.loads(path.read_text(encoding="utf-8")) if path.exists() else {}
 
 
 def save(path, glossary):
-    path.write_text(json.dumps(glossary, ensure_ascii=False, indent=1, sort_keys=True))
+    path.write_text(json.dumps(glossary, ensure_ascii=False, indent=1, sort_keys=True), encoding="utf-8")
 
 
 def mentioned(term, text):
