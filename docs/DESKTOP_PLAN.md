@@ -230,3 +230,18 @@ Built on this branch:
 - [x] UI language: the page keeps Chinese and English together (open question 4, decided: acceptable).
 - [ ] Not done: model and OCR model pickers, per-provider cost figures, spend guard, native save dialog and
       "show in folder" (needs a person at the screen), Windows window check.
+
+### M3: installer (written, not yet run on Windows)
+
+- [x] One program instead of two: `BookTranslator.exe` opens the window; `BookTranslator.exe --sidecar` runs the
+      local server (the shell starts a copy of itself). Halves the bundle; the shell finds the server through a
+      `--ready-file` (a windowed program has no stdout) and logs to `%APPDATA%\BookTranslator\sidecar.log`.
+- [x] `packaging/installer.iss` (Inno Setup): per-user install, no admin rights, Start menu entry, optional desktop
+      shortcut, uninstaller; user data is kept on uninstall.
+- [x] CI (`desktop-windows.yml`): build the app, smoke-test the frozen app, shell key flow and orphan check against
+      it, build the installer, then `packaging/install_check.py`: silent install into a folder with Chinese
+      characters, smoke test of the installed app, launch the window (warning only if it fails), uninstall and
+      check nothing is left. The installer is uploaded as an artifact.
+- Checked on macOS only: the frozen single program passes the smoke test and works as the shell's sidecar.
+- Deviations: `LICENSE` is still MIT and the installer shows no license page; swapping to AGPL-3.0 (ADR 0003) is
+  still to do before a release. The installer is English only. WebView2 is assumed present (Windows 10 2018+ and 11).

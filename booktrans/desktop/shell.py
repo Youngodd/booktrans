@@ -4,8 +4,8 @@ credential store, hand the key to the sidecar once per session, show the window.
 python -m booktrans.desktop.shell                 open the app window
 python -m booktrans.desktop.shell --headless-check  everything except the window (CI)
 
-BOOKTRANS_SIDECAR can name the sidecar program (default: this Python running
-`-m booktrans.desktop`). The sidecar must not outlive the shell: on Windows it is put in a
+BOOKTRANS_SIDECAR can name the app program to run with --sidecar (default: this Python running
+`-m booktrans.desktop`; a frozen app runs itself). The sidecar must not outlive the shell: on Windows it is put in a
 job object that kills it when the shell exits, however the shell ends.
 """
 import os
@@ -13,8 +13,8 @@ import re
 import shutil
 import subprocess
 import sys
-import threading
 import time
+from pathlib import Path
 
 import httpx
 
@@ -31,8 +31,9 @@ KEY_PAGES = {  # pages that explain how to get a key; the only URLs the page may
 
 
 def sidecar_command():
-    exe = os.environ.get("BOOKTRANS_SIDECAR")
-    return [exe] if exe else [sys.executable, "-m", "booktrans.desktop"]
+    """The installed app runs itself with --sidecar; BOOKTRANS_SIDECAR names another such program."""
+    exe = os.environ.get("BOOKTRANS_SIDECAR") or (sys.executable if getattr(sys, "frozen", False) else None)
+    return [exe, "--sidecar"] if exe else [sys.executable, "-m", "booktrans.desktop"]
 
 
 def _kill_with_parent_on_windows(proc):
@@ -71,25 +72,31 @@ def _kill_with_parent_on_windows(proc):
 class Sidecar:
     def __init__(self):
         self.proc = self.base = self.token = self._job = None
-        self.log = []
 
     def start(self, timeout=90):
-        self.proc = subprocess.Popen(sidecar_command(), stdout=subprocess.PIPE,
-                                     stderr=subprocess.STDOUT, text=True, encoding="utf-8")
+        import tempfile
+        from .__main__ import data_dir
+        ready = Path(tempfile.mkdtemp(prefix="booktrans-")) / "ready"
+        logs = data_dir()
+        logs.mkdir(parents=True, exist_ok=True)
+        self.log_path = logs / "sidecar.log"
+        flags = 0x08000000 if os.name == "nt" else 0  # CREATE_NO_WINDOW: no console flash
+        with open(self.log_path, "a", encoding="utf-8") as log:
+            self.proc = subprocess.Popen(sidecar_command() + ["--ready-file", str(ready)],
+                                         stdout=log, stderr=subprocess.STDOUT, creationflags=flags)
         if os.name == "nt":
             self._job = _kill_with_parent_on_windows(self.proc)
-        threading.Thread(target=lambda: [self.log.append(l) for l in self.proc.stdout],
-                         daemon=True).start()
         end = time.time() + timeout
         while time.time() < end:
-            m = re.search(r"port=(\d+) token=(\S+)", "".join(self.log))
-            if m:
+            if ready.exists():
                 break
             if self.proc.poll() is not None:
-                raise RuntimeError("sidecar exited early:\n" + "".join(self.log))
+                raise RuntimeError("sidecar exited early:\n" + self.log_path.read_text(
+                    encoding="utf-8", errors="replace")[-2000:])
             time.sleep(0.1)
         else:
             raise RuntimeError("sidecar did not start")
+        m = re.search(r"port=(\d+) token=(\S+)", ready.read_text(encoding="utf-8"))
         self.base, self.token = f"http://127.0.0.1:{m[1]}", m[2]
         self.http = httpx.Client(base_url=self.base, headers={"X-Booktrans-Token": self.token},
                                  timeout=60)

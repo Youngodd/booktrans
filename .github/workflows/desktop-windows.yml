@@ -26,7 +26,7 @@ jobs:
           cache-dependency-path: requirements*.txt
       - name: Install
         run: |
-          python -m pip install -r requirements-web.txt -r requirements-dev.txt pyinstaller
+          python -m pip install -r requirements-web.txt -r requirements-dev.txt pyinstaller pywebview keyring
       - name: Tests
         shell: bash
         run: |
@@ -37,56 +37,55 @@ jobs:
         run: |
           grep -E "^(FAILED|ERROR)" test.txt | head -40 | cut -c1-300 | while read -r l; do echo "::error title=pytest::$l"; done
           tail -n 3 test.txt | cut -c1-300 | while read -r l; do echo "::error title=pytest summary::$l"; done
-      - name: Build sidecar
+      - name: Build app
         shell: bash
         run: |
-          python -m PyInstaller --noconfirm --onedir --name booktrans-sidecar \
+          python -m PyInstaller --noconfirm --onedir --windowed --name BookTranslator \
             --add-data "booktrans/web/static;booktrans/web/static" \
-            --collect-submodules uvicorn --collect-submodules booktrans \
-            --hidden-import fitz \
+            --collect-submodules uvicorn --collect-submodules booktrans --collect-submodules webview \
+            --hidden-import fitz --hidden-import keyring.backends.Windows --hidden-import clr \
             --exclude-module tkinter --exclude-module matplotlib --exclude-module scipy \
             --exclude-module pytest --exclude-module IPython \
-            packaging/sidecar_entry.py 2>&1 | tee build.txt
-      - name: Smoke test the frozen build
+            packaging/app_entry.py 2>&1 | tee build.txt
+      - name: Smoke test the frozen app (as its own sidecar)
         shell: bash
         run: |
-          python packaging/smoke_test.py --bundle dist/booktrans-sidecar \
-            dist/booktrans-sidecar/booktrans-sidecar.exe 2>&1 | tee smoke.txt
-          { echo "### Desktop sidecar (Windows)"; echo '```'; cat smoke.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
-      - name: Shell prototype (pywebview) - key flow and orphan check
+          python packaging/smoke_test.py --bundle dist/BookTranslator \
+            dist/BookTranslator/BookTranslator.exe --sidecar 2>&1 | tee smoke.txt
+          { echo "### Desktop app (Windows)"; echo '```'; cat smoke.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+      - name: Shell key flow and orphan check
         shell: bash
         run: |
-          python -m pip install pywebview keyring
-          export BOOKTRANS_SIDECAR="$PWD/dist/booktrans-sidecar/booktrans-sidecar.exe"
+          export BOOKTRANS_SIDECAR="$PWD/dist/BookTranslator/BookTranslator.exe"
           export BOOKTRANS_FAKE_BACKEND=1
           python -m booktrans.desktop.shell --headless-check 2>&1 | tee shell.txt
           python packaging/orphan_test.py python -m booktrans.desktop.shell 2>&1 | tee -a shell.txt
-      - name: Build shell prototype
+      - name: Build installer (Inno Setup)
         shell: bash
         run: |
-          python -m PyInstaller --noconfirm --onedir --name booktrans-shell \
-            --collect-submodules booktrans --collect-submodules webview \
-            --hidden-import keyring.backends.Windows --hidden-import clr \
-            --exclude-module tkinter --exclude-module matplotlib --exclude-module scipy \
-            packaging/shell_entry.py 2>&1 | tee shell-build.txt
-          { echo "### Shell prototype (pywebview)"; echo '```';
-            python -c "import pathlib;d=pathlib.Path('dist/booktrans-shell');print('shell bundle (without sidecar): %d MB' % (sum(f.stat().st_size for f in d.rglob('*') if f.is_file())/1e6))";
-            tail -n 3 shell.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+          choco install innosetup -y --no-progress
+          "/c/Program Files (x86)/Inno Setup 6/ISCC.exe" "/DAppVersion=0.1.${{ github.run_number }}" packaging/installer.iss 2>&1 | tee installer-build.txt
+          ls -l installer
+      - name: Install, smoke test, launch, uninstall
+        shell: bash
+        run: |
+          python packaging/install_check.py installer/BookTranslator-Setup-*.exe 2>&1 | tee install.txt
+          { echo "### Installer"; echo '```'; cat install.txt; ls -l installer | tail -n +2; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
       - name: Build and smoke failures as annotations
         if: failure()
         shell: bash
         run: |
-          for f in build.txt smoke.txt shell.txt shell-build.txt; do
+          for f in build.txt smoke.txt shell.txt installer-build.txt install.txt; do
             [ -f "$f" ] && tail -n 15 "$f" | cut -c1-300 | while read -r l; do echo "::error title=$f::$l"; done
           done
           true
-      - name: Largest packages in the bundle
+      - name: Largest folders in the bundle
         shell: bash
         run: |
-          { echo "Top folders in dist/booktrans-sidecar/_internal:"; echo '```';
-            du -sm dist/booktrans-sidecar/_internal/* | sort -rn | head -15; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+          { echo "Top folders in dist/BookTranslator/_internal:"; echo '```';
+            du -sm dist/BookTranslator/_internal/* | sort -rn | head -15; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
       - uses: actions/upload-artifact@v4
         with:
-          name: booktrans-sidecar-windows
-          path: dist/booktrans-sidecar
-          retention-days: 7
+          name: BookTranslator-Setup
+          path: installer/*.exe
+          retention-days: 14

@@ -2,7 +2,7 @@
 check the output has Chinese text, and report the bundle size.
 
 usage: python packaging/smoke_test.py [--bundle DIR] COMMAND [ARGS...]
-e.g.   python packaging/smoke_test.py dist/booktrans-sidecar/booktrans-sidecar.exe
+e.g.   python packaging/smoke_test.py dist/BookTranslator/BookTranslator.exe --sidecar
        python packaging/smoke_test.py python -m booktrans.desktop
 The data folder and the book's file name contain Chinese characters on purpose.
 """
@@ -12,7 +12,6 @@ import re
 import subprocess
 import sys
 import tempfile
-import threading
 import time
 from pathlib import Path
 
@@ -43,18 +42,22 @@ def main():
     work = Path(tempfile.mkdtemp(prefix="书-")) # non-ASCII path
     env = {**os.environ, "BOOKTRANS_DATA": str(work / "数据"), "BOOKTRANS_FAKE_BACKEND": "1",
            "PYTHONIOENCODING": "utf-8"}
-    proc = subprocess.Popen(args.command, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-                            env=env, text=True, encoding="utf-8")
-    log = []
-    threading.Thread(target=lambda: [log.append(l) for l in proc.stdout], daemon=True).start()
+    ready = work / "ready"
+    logfile = work / "sidecar.out"
+    with open(logfile, "w", encoding="utf-8") as out:
+        proc = subprocess.Popen(args.command + ["--ready-file", str(ready)], stdout=out,
+                                stderr=subprocess.STDOUT, env=env)
     try:
         end = time.time() + 90
-        while time.time() < end and not any("BOOKTRANS_READY" in l for l in log):
+        while time.time() < end and not ready.exists():
             if proc.poll() is not None:
-                sys.exit("sidecar exited early:\n" + "".join(log))
+                app_log = Path(env["BOOKTRANS_DATA"]) / "sidecar.log"
+                sys.exit("sidecar exited early:\n" + logfile.read_text(encoding="utf-8", errors="replace")
+                         + (app_log.read_text(encoding="utf-8", errors="replace")[-2000:]
+                            if app_log.exists() else ""))
             time.sleep(0.2)
-        m = re.search(r"port=(\d+) token=(\S+)", "".join(log))
-        assert m, "no ready line:\n" + "".join(log)
+        m = re.search(r"port=(\d+) token=(\S+)", ready.read_text(encoding="utf-8") if ready.exists() else "")
+        assert m, "sidecar never reported its port"
         c = httpx.Client(base_url=f"http://127.0.0.1:{m[1]}", headers={"X-Booktrans-Token": m[2]},
                          timeout=30)
         for _ in range(50):  # the ready line comes just before the server listens

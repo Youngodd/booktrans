@@ -1,7 +1,8 @@
 """Run the desktop sidecar: python -m booktrans.desktop
 
-Prints one line, `BOOKTRANS_READY port=<port> token=<token>`, once the server is up, so the
-shell that spawned it knows where to connect. Binds to 127.0.0.1 on a random port.
+Tells the shell that spawned it where to connect, as one line `port=<port> token=<token>`
+written to the file given with `--ready-file` (a windowed Windows program has no stdout), and
+also printed as `BOOKTRANS_READY ...` when there is one. Binds to 127.0.0.1 on a random port.
 """
 import os
 import re
@@ -34,7 +35,9 @@ class FakeBackend(LLMBackend):
         return "\n".join(f"[{n}] 译{n}" for n in nums) if nums else "译:" + user
 
 
-def main():
+def main(argv=None):
+    argv = sys.argv[1:] if argv is None else argv
+    ready_file = argv[argv.index("--ready-file") + 1] if "--ready-file" in argv else None
     token = secrets.token_urlsafe(24)
     sock = socket.socket()
     sock.bind(("127.0.0.1", 0))
@@ -43,7 +46,12 @@ def main():
         if os.environ.get("BOOKTRANS_FAKE_BACKEND") == "1" else {}
     app = create_app(data_dir(), desktop=True, token=token, **extra,
                      executor=ThreadPoolExecutor(1))  # threads: no frozen-multiprocessing
-    print(f"BOOKTRANS_READY port={port} token={token}", flush=True)
+    line = f"port={port} token={token}"
+    if ready_file:  # written whole, then renamed, so the reader never sees half a line
+        Path(ready_file + ".tmp").write_text(line, encoding="utf-8")
+        os.replace(ready_file + ".tmp", ready_file)
+    if sys.stdout:
+        print("BOOKTRANS_READY " + line, flush=True)
     uvicorn.Server(uvicorn.Config(app, log_level="warning")).run(sockets=[sock])
 
 
