@@ -64,6 +64,7 @@ jobs:
         shell: bash
         run: |
           choco install innosetup -y --no-progress
+          export MSYS_NO_PATHCONV=1 MSYS2_ARG_CONV_EXCL="*"  # Git Bash must not rewrite the /D switch as a path
           "/c/Program Files (x86)/Inno Setup 6/ISCC.exe" "/DAppVersion=0.1.${{ github.run_number }}" packaging/installer.iss 2>&1 | tee installer-build.txt
           ls -l installer
       - name: Install, smoke test, launch, uninstall
