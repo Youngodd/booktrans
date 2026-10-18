@@ -44,6 +44,8 @@ Revisit Tauri if: the Windows build shows pywebview is fragile under PyInstaller
 priority, or a native look matters. The sidecar's HTTP+token interface means the shell can be swapped without
 touching the engine.
 
-## Open until Windows CI reports
+## Windows CI result
 
-Shell bundle size; whether the job-object orphan test passes; whether keyring works on the runner.
+Run on commit `2b0cdcf`: tests, the key flow with the real Windows credential store, the orphan test
+(killing the shell hard also ended the sidecar) and the PyInstaller build of the shell all passed.
+Still open: the shell bundle size (in the run's job summary) and anything that needs a visible window.

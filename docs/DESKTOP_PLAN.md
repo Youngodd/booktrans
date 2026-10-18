@@ -18,7 +18,7 @@ computer. No server of ours, no key or book leaves the machine except to the cho
 | Providers | Anthropic (`api`), Qwen (`qwen`, `qwen-intl`), DeepSeek (`deepseek`). `claude-cli` hidden. |
 | Engine | The existing Python package, unchanged where possible. |
 | License | AGPL-3.0, because PyMuPDF is bundled ([ADR 0003](adr/0003-license-desktop-app-under-agpl.md)). |
-| Shell | pywebview for the MVP (recommended in [SHELL_COMPARISON.md](SHELL_COMPARISON.md); to be confirmed by the Windows CI results). Tauri stays possible: the shell only talks HTTP to the sidecar. |
+| Shell | pywebview for the MVP (chosen in [SHELL_COMPARISON.md](SHELL_COMPARISON.md); Windows CI confirmed the key flow, job-object cleanup and the build). Tauri stays possible: the shell only talks HTTP to the sidecar. |
 
 ## What exists and what changes
 
@@ -207,4 +207,6 @@ Windows runner and (for M4) a certificate and a decision on paying for one.
 - [x] pywebview prototype `booktrans/desktop/shell.py` with key flow, credential store and Windows job object.
 - [x] Written comparison and recommendation: [SHELL_COMPARISON.md](SHELL_COMPARISON.md). Tauri was assessed from
       documentation only; no Tauri build was made.
-- [ ] Windows CI results for the shell (orphan test, keyring, bundle size). Not yet run.
+- [x] Windows CI (run on `2b0cdcf`, all steps green): the key flow through the real Windows credential store,
+      the orphan test (sidecar ended when the shell was killed) and the PyInstaller build of the shell passed.
+      The shell bundle size is in that run's job summary; not yet copied here.
