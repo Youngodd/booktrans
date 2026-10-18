@@ -75,10 +75,13 @@ jobs:
         if: failure()
         shell: bash
         run: |
-          for f in build.txt smoke.txt shell.txt installer-build.txt install.txt; do
-            [ -f "$f" ] && tail -n 15 "$f" | cut -c1-300 | while read -r l; do echo "::error title=$f::$l"; done
+          # one annotation per log file (GitHub shows at most 10 per step); newest steps first
+          for f in install.txt installer-build.txt shell.txt smoke.txt build.txt; do
+            if [ -f "$f" ]; then
+              msg=$(tail -n 25 "$f" | tr -d '\r' | cut -c1-300 | awk '{printf "%s%%0A", $0}')
+              echo "::error title=$f::$msg"
+            fi
           done
-          true
       - name: Largest folders in the bundle
         shell: bash
         run: |
