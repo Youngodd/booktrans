@@ -190,3 +190,14 @@ file so it also works with a process pool. The token protects `/api/*` only; `/`
 
 Not started, and why: M0 needs a Windows machine; M2 depends on the M0 shell choice; M3 and M4 need a
 Windows runner and (for M4) a certificate and a decision on paying for one.
+
+### M0/M3 groundwork: Windows CI
+
+- [x] `.github/workflows/desktop-windows.yml` (runs on push to `desktop-app` or by hand): pytest on Windows,
+      PyInstaller onedir build of the sidecar, smoke test of the frozen build, bundle size and largest
+      folders in the job summary, bundle uploaded as an artifact. **Not yet run on GitHub.**
+- [x] `packaging/sidecar_entry.py` (PyInstaller entry, calls `freeze_support`) and `packaging/smoke_test.py`
+      (Chinese data folder and file name, fake backend via `BOOKTRANS_FAKE_BACKEND=1`, checks the output
+      PDF contains Chinese text).
+- Checked locally on macOS only: the same build and smoke test pass. The bundle is 353 MB there, well above
+  the 100-150 MB guess above; the Windows number will come from CI.

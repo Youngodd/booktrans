@@ -1,0 +1,57 @@
+name: Desktop (Windows)
+
+# M0/M3 of docs/DESKTOP_PLAN.md: run the tests on Windows, freeze the sidecar with PyInstaller,
+# smoke-test the frozen build (Chinese paths, Chinese rendering, fake backend) and report its size.
+on:
+  workflow_dispatch:
+  push:
+    branches: [desktop-app]
+    paths:
+      - "booktrans/**"
+      - "tests/**"
+      - "packaging/**"
+      - "requirements*.txt"
+      - ".github/workflows/desktop-windows.yml"
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: requirements*.txt
+      - name: Install
+        run: |
+          python -m pip install -r requirements-web.txt -r requirements-dev.txt pyinstaller
+      - name: Tests
+        run: python -m pytest -q
+      - name: Build sidecar
+        shell: bash
+        run: |
+          python -m PyInstaller --noconfirm --onedir --name booktrans-sidecar \
+            --add-data "booktrans/web/static;booktrans/web/static" \
+            --collect-submodules uvicorn --collect-submodules booktrans \
+            --hidden-import fitz \
+            --exclude-module tkinter --exclude-module matplotlib --exclude-module scipy \
+            --exclude-module pytest --exclude-module IPython \
+            packaging/sidecar_entry.py
+      - name: Smoke test the frozen build
+        shell: bash
+        run: |
+          python packaging/smoke_test.py --bundle dist/booktrans-sidecar \
+            dist/booktrans-sidecar/booktrans-sidecar.exe | tee smoke.txt
+          { echo "### Desktop sidecar (Windows)"; echo '```'; cat smoke.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+      - name: Largest packages in the bundle
+        shell: bash
+        run: |
+          { echo "Top folders in dist/booktrans-sidecar/_internal:"; echo '```';
+            du -sm dist/booktrans-sidecar/_internal/* | sort -rn | head -15; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: booktrans-sidecar-windows
+          path: dist/booktrans-sidecar
+          retention-days: 7
