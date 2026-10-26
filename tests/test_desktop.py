@@ -291,3 +291,22 @@ def test_the_key_never_appears_in_spend_fields(make, text_pdf):
     start(c, job, spend_limit=2.5)
     j = wait(c, job, states=ANY)
     assert KEY not in json.dumps(j)
+
+
+def test_unexpected_failure_is_logged_with_the_key_blanked(make, text_pdf, capsys):
+    calls = []
+
+    def factory(key, provider="api"):
+        if calls:  # the key check at PUT /api/key goes first
+            raise RuntimeError(f"boom with {key}")
+        calls.append(1)
+        return FakeBackend()
+
+    c = make(factory)
+    c.put("/api/key", json={"api_key": KEY})
+    job = c.post("/api/jobs", files={"file": ("b.pdf", text_pdf.read_bytes())}).json()["id"]
+    c.post(f"/api/jobs/{job}/start", json={})
+    j = wait(c, job)
+    err = capsys.readouterr().err
+    assert j["state"] == "failed" and j["error"] == "Something went wrong while translating this book."
+    assert "Job failed" in err and "boom with ***" in err and KEY not in err

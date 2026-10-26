@@ -10,6 +10,7 @@ import os
 import re
 import secrets
 import shutil
+import sys
 import time
 from pathlib import Path
 
@@ -113,7 +114,18 @@ def preview_range(pages, total):
     return f"{idx[0] + 1}-{idx[min(PREVIEW_PAGES, len(idx)) - 1] + 1}"
 
 
+def _log_failure(e, api_key):
+    """Write the full traceback of an unexpected failure to stderr (the desktop app's log file),
+    with the API key blanked out. The job shows only a short generic message."""
+    import traceback
+    text = "".join(traceback.format_exception(type(e), e, e.__traceback__))
+    sys.stderr.write("Job failed:\n" + (text.replace(api_key, "***") if api_key else text) + "\n")
+    sys.stderr.flush()
+
+
 def _failure_text(e, api_key):
+    if not isinstance(e, (BackendError, ValueError)) and isinstance(e, Exception):
+        _log_failure(e, api_key)
     msg = str(e).replace(api_key, "***") if api_key else str(e)
     if not isinstance(e, (BackendError, ValueError)):
         msg = "Something went wrong while translating this book."

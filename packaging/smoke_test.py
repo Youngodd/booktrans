@@ -80,6 +80,11 @@ def main():
             if j["state"] in ("done", "failed"):
                 break
             time.sleep(0.3)
+        if j["state"] != "done":  # show why: the app logs the real error to its log file
+            app_log = Path(env["BOOKTRANS_DATA"]) / "sidecar.log"
+            print("sidecar.log:\n" + (app_log.read_text(encoding="utf-8", errors="replace")[-3000:]
+                                       if app_log.exists() else "(none)"))
+            print("stdout/stderr:\n" + logfile.read_text(encoding="utf-8", errors="replace")[-3000:])
         assert j["state"] == "done", j
         pdf = c.get(f"/api/jobs/{job['id']}/download").content
         out = fitz.open(stream=pdf, filetype="pdf")
