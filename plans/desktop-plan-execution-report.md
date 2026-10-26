@@ -14,8 +14,8 @@ by decision (no spending on signing). Remaining items need a person on Windows o
 | M1 desktop mode, cancel, key and proxy endpoints | Done | `tests/test_desktop.py` |
 | M2 shell and screens | Done on macOS | `packaging/ui_check.py` drives the real window; not used by a person on Windows |
 | M3 installer, CI | Done, green on Windows (run for `64e8416`) | 87 MB installer; silent install into a Chinese-named folder, smoke test, uninstall |
-| License to AGPL-3.0, third-party list | Done, not on CI | `LICENSE` (official text), `docs/THIRD_PARTY.md`; binary components inside wheels not verified |
-| Spend guard (default ¥10 per book) | Done, not on CI | `booktrans/spend.py`, `tests/test_spend.py`, desktop tests, `ui_check.py` |
+| License to AGPL-3.0, third-party list | Done, green on CI | `LICENSE` (official text), `docs/THIRD_PARTY.md`; binary components inside wheels not verified |
+| Spend guard (default ¥10 per book) | Done, green on CI | `booktrans/spend.py`, `tests/test_spend.py`, desktop tests, `ui_check.py` |
 | Per-provider cost estimate | Done as estimates | Qwen and DeepSeek rates unverified |
 | M4 signing, updates, hosting | Deferred | Owner decision: no money for certificates |
 | Model and OCR model pickers | Not done | |
@@ -33,13 +33,12 @@ by decision (no spending on signing). Remaining items need a person on Windows o
 - `.venv/bin/python -m pytest -q`: 132 passed (macOS, Python 3.9), including 19 in `tests/test_spend.py`.
 - `packaging/ui_check.py`: passes (first run, proxy, key, book reopen, name review, spend stop, finish with translated pages).
 - `packaging/smoke_test.py` against the dev sidecar: passes.
-- Windows CI: last green run is for `64e8416`; later commits (`3dad04e`, `fccfb60`, `989c560`) have not been pushed or run.
-- One Windows run earlier failed the frozen-app smoke test and passed on the next with no change: possibly intermittent.
+- Windows CI: green for `8d4fc13` (everything up to the spend guard). The earlier intermittent smoke failure was a newer PyMuPDF whose optional layout data files are missing from the bundle; fixed by pinning `pymupdf==1.26.5`.
 - No real provider was called at any point.
 
 ## Audit findings
 - Prices in `spend.py` are unverified; the guard is only as good as those numbers. Stated in the code, plan and UI.
-- The installer script changed (license page); CI has not built it yet.
+- Other dependencies are unpinned and could break the frozen build the same way PyMuPDF did.
 - Hosted-service behaviour is unchanged except that `api_key` is optional in the request models (400, not 422).
 - Open: the intermittent smoke failure; wheel-internal licenses; contributor DCO/CLA.
 

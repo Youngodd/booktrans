@@ -295,3 +295,15 @@ publisher"; the user clicks More info, Run anyway) and some antivirus products m
 consider later: tell users how to bypass the warning in the README, publish SHA-256 checksums next to the download,
 or apply to a free signing programme for open-source projects if one is available (not verified). The update channel
 and download hosting (GitHub Releases) need no payment but are not built.
+
+### CI status after the spend guard (commit `8d4fc13`, all steps green)
+
+Windows CI passes with the AGPL license page in the installer, the spend guard and the latest desktop page: 133 tests,
+frozen-app smoke test, shell key flow, orphan check, installer build (86 MB), silent install into a folder with Chinese
+characters, smoke test of the installed app, window launch (no warning) and uninstall.
+
+Found on the way: the unpinned latest PyMuPDF (newer than 1.26.5) loads an optional layout feature on import whose data
+files are not in the PyInstaller bundle, so the frozen app failed at the first book ("Something went wrong"). This also
+explains the earlier one-off smoke failure. Fixes: `requirements.txt` pins `pymupdf==1.26.5` (re-test before raising it),
+unexpected job failures now log their traceback (key blanked) to `sidecar.log`, and CI prints package versions.
+Other dependencies are still unpinned; the same kind of break could come from any of them.
