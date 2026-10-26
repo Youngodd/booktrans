@@ -1,41 +1,52 @@
 # Execution Report: Desktop app plan
 
-Plan: `docs/DESKTOP_PLAN.md`. Date: 2026-10-18.
+Plan: `docs/DESKTOP_PLAN.md`. Updated 2026-10-26 (first written 2026-10-18).
 
 ## Summary
-Partial. M1 (desktop mode in `web/`) is built and tested. M0, M2, M3, M4 are not done: they need a
-Windows machine or runner, the shell decision that M0 produces, and a signing certificate.
+Partial, well advanced. M0 (mostly), M1, M2 and M3 are built and green on Windows CI up to commit `64e8416`;
+the AGPL swap, manual test checklist and spend guard are committed locally and not yet run on CI. M4 is deferred
+by decision (no spending on signing). Remaining items need a person on Windows or a decision.
 
 ## Step results
-| Step | Status | Notes |
+| Step | Status | Evidence |
 | --- | --- | --- |
-| M0 spike | Not done | Needs Windows; this is macOS. |
-| M1 desktop mode, cancel hook, key endpoint | Done | `booktrans/web/app.py`, `jobs.py`, `pipeline.py`, `booktrans/desktop/` |
-| M1 per-provider estimate | Not done | Only the Anthropic cost per page is measured; spend guard not started. |
-| M2 shell, credential store, UI screens | Not done | Depends on M0. |
-| M3 CI installer and smoke test | Not done | Needs Windows runner. |
-| M4 signing, update channel | Not done | Needs certificate decision. |
+| M0 spike: Windows bundle, Chinese rendering, shell comparison | Mostly done | CI smoke test with Chinese paths; `docs/SHELL_COMPARISON.md`. Not done: scanned-PDF and EPUB samples, 400-page memory test |
+| M1 desktop mode, cancel, key and proxy endpoints | Done | `tests/test_desktop.py` |
+| M2 shell and screens | Done on macOS | `packaging/ui_check.py` drives the real window; not used by a person on Windows |
+| M3 installer, CI | Done, green on Windows (run for `64e8416`) | 87 MB installer; silent install into a Chinese-named folder, smoke test, uninstall |
+| License to AGPL-3.0, third-party list | Done, not on CI | `LICENSE` (official text), `docs/THIRD_PARTY.md`; binary components inside wheels not verified |
+| Spend guard (default ¥10 per book) | Done, not on CI | `booktrans/spend.py`, `tests/test_spend.py`, desktop tests, `ui_check.py` |
+| Per-provider cost estimate | Done as estimates | Qwen and DeepSeek rates unverified |
+| M4 signing, updates, hosting | Deferred | Owner decision: no money for certificates |
+| Model and OCR model pickers | Not done | |
+| Manual testing on Windows | Not done | `docs/MANUAL_TEST.md` |
 
 ## Deviations
-- Sidecar uses a thread executor, not a process pool (avoids frozen multiprocessing; jobs run one at a time).
-- Cancel is a flag file checked in the progress callback.
+- Sidecar runs jobs in one thread (no worker processes); cancel is a flag file.
+- One program (`BookTranslator.exe --sidecar`) instead of two bundles.
+- The spend guard defaults to ¥10 in the desktop app and CLI but is off in the hosted service unless a request sets a
+  limit, because the hosted page and the mini program cannot show the decision.
+- The spend check uses an estimate of the next call's size, so it can be off by part of one call; a page half
+  translated at the limit is paid for but not saved.
 
 ## Test results
-- `.venv/bin/python -m pytest -q`: 101 passed (3 runs). Baseline was 92; 9 new in `tests/test_desktop.py`.
-- One earlier full run failed `test_web.py::test_provider_is_checked_and_passed_to_the_backend`; it passed alone
-  and in 6 repeated runs with and without my changes. It asserts on a list the worker thread fills, so it is
-  a pre-existing race. Not fixed.
-- Ran `python -m booktrans.desktop`: printed the ready line; `/api/config` gave 401 without the token and 200 with it.
-- Not run: a real translation against a provider, Windows, PyInstaller.
+- `.venv/bin/python -m pytest -q`: 132 passed (macOS, Python 3.9), including 19 in `tests/test_spend.py`.
+- `packaging/ui_check.py`: passes (first run, proxy, key, book reopen, name review, spend stop, finish with translated pages).
+- `packaging/smoke_test.py` against the dev sidecar: passes.
+- Windows CI: last green run is for `64e8416`; later commits (`3dad04e`, `fccfb60`, `989c560`) have not been pushed or run.
+- One Windows run earlier failed the frozen-app smoke test and passed on the next with no change: possibly intermittent.
+- No real provider was called at any point.
 
 ## Audit findings
-- The ready line is printed just before uvicorn starts listening, so a shell must retry the first connection.
-- `/` is served without the token (only `/api/*` is protected).
-- No key is written to disk or returned by any endpoint (tested). Key storage in the OS credential store is M2.
-- Hosted behaviour: `api_key` is now optional in the request models, so a hosted request that omits it gets 400 instead of 422.
+- Prices in `spend.py` are unverified; the guard is only as good as those numbers. Stated in the code, plan and UI.
+- The installer script changed (license page); CI has not built it yet.
+- Hosted-service behaviour is unchanged except that `api_key` is optional in the request models (400, not 422).
+- Open: the intermittent smoke failure; wheel-internal licenses; contributor DCO/CLA.
 
 ## Definition of done
-The plan defines none beyond per-milestone testability. M1: existing tests pass (met), desktop tests added (met).
+Per milestone, as in the plan: M1 to M3 met (CI evidence above). Spend guard: the five listed behaviours are tested
+(under limit, over limit with cache saved and spend reported, resume without re-paying, retries counted, no limit).
 
 ## Follow-ups
-Do M0 on a Windows machine; measure Qwen/DeepSeek cost; decide on a signing certificate and the open questions in the plan.
+Push so CI checks the installer and everything since `64e8416`; run `docs/MANUAL_TEST.md` on Windows; verify provider
+prices; model and OCR pickers; update channel and README note about SmartScreen.
