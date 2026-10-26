@@ -77,16 +77,22 @@ def run(window, side):
         window.load_url(f"{side.base}/?reload=1#token={side.token}")
         until(window, "document.getElementById('bookinfo').textContent.includes('化学之树.pdf')")
         # the review step: tick it, translate, accept the names
+        window.evaluate_js("document.getElementById('limit').value = '1.5'")  # the fake backend costs ¥1 a call
         window.evaluate_js("rights.checked = true; review.checked = true; btn_start = document.getElementById('btn-start'); btn_start.click()")
         until(window, "!document.getElementById('step-names').classList.contains('hidden') && "
                       "!document.getElementById('btn-names-skip').classList.contains('hidden')", 60)
         window.evaluate_js("document.getElementById('btn-names-skip').click()")
+        # the limit stops the book after one page and asks
+        until(window, "!document.getElementById('decision').classList.contains('hidden')", 90)
+        text = window.evaluate_js("document.getElementById('decision-text').textContent")
+        assert "¥1.00" in text and "1.50" in text and "1/2" in text, text
+        window.evaluate_js("document.getElementById('btn-finish-partial').click()")
         until(window, "!document.getElementById('btn-save').classList.contains('hidden')", 90)
-        assert "Done" in window.evaluate_js("document.getElementById('stage').textContent")
+        assert "translated pages only" in window.evaluate_js("document.getElementById('stage').textContent")
         # the key never reached the page
         assert "ui-check-key" not in window.evaluate_js("document.documentElement.outerHTML")
         result["ok"] = True
-        print("UI CHECK OK: first run, proxy set and cleared, key saved, book reopened, glossary step, translated")
+        print("UI CHECK OK: first run, proxy set and cleared, key saved, book reopened, glossary step, spend limit stop, finished with the translated pages")
     except Exception as e:
         print("UI CHECK FAILED:", repr(e))
         print("page text:", window.evaluate_js("document.body.innerText")[:600])

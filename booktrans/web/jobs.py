@@ -124,6 +124,7 @@ def run_glossary_draft(root, job_id, api_key, backend_factory=default_backend, p
                        pages=""):
     """Build the book's glossary ahead of the translation so the user can review it."""
     from ..pipeline import draft_glossary
+    from ..spend import Meter, SpendLimitReached
     store = JobStore(root)
     job = store.read(job_id)
     if job is None:
@@ -132,10 +133,15 @@ def run_glossary_draft(root, job_id, api_key, backend_factory=default_backend, p
     store.write(job_id, glossary_state="building", glossary_error="")
     try:
         translator = backend_factory(api_key, provider)
+        meter = Meter(job.get("spend_limit", 0), path / "output.spend.json")
         glossary = draft_glossary(path / ("input" + job["ext"]), translator,
-                                  path / "output.glossary.json", pages=pages or None)
-        store.write(job_id, glossary_state="ready",
+                                  path / "output.glossary.json", pages=pages or None, meter=meter)
+        store.write(job_id, glossary_state="ready", spent_cny=round(meter.spent, 4),
                     glossary_count=sum(1 for zh in glossary.values() if zh))
+    except SpendLimitReached as e:
+        store.write(job_id, glossary_state="failed", spent_cny=round(e.spent, 4),
+                    glossary_error=f"Spend limit reached (¥{e.spent:.2f} of ¥{e.limit:.2f}). "
+                                   "Raise the limit or skip the name review.")
     except BaseException as e:
         store.write(job_id, glossary_state="failed", glossary_error=_failure_text(e, api_key))
         if not isinstance(e, Exception):
@@ -146,27 +152,34 @@ def run_job(root, job_id, api_key, backend_factory=default_backend, provider="ap
             send_mail=None):
     """Run one job to the end. Executed in a worker process (or thread, in tests)."""
     from ..pipeline import Cancelled, translate_book
+    from ..spend import Meter, NoCalls, SpendLimitReached, rest_estimate
     store = JobStore(root)
     job = store.read(job_id)
     if job is None:
         return
     path = store.dir(job_id)
 
+    last = {"stage": "", "done": 0, "total": 0}
+
     def progress(stage, done, total):
         if (path / "cancel").exists():  # set by the desktop app's Cancel button
             raise Cancelled()
+        last.update(stage=stage, done=done, total=total)
         store.write(job_id, state="running", stage=stage, done=done, total=total)
 
+    meter = Meter(job.get("spend_limit", 0), path / "output.spend.json")  # 0: counts, never stops
     translator = None
     try:
         store.write(job_id, state="running", stage="scan", done=0, total=0, error="")
-        translator = backend_factory(api_key, provider)
+        translator = NoCalls() if job.get("only_cached") else backend_factory(api_key, provider)
         pages = job["range"]
         translate_book(path / ("input" + job["ext"]), path / "output.pdf", translator,
                        ocr_backend=translator if job["ocr"] else None, pages=pages,
-                       progress=progress, auto_glossary=job.get("auto_glossary", True))
+                       progress=progress, auto_glossary=job.get("auto_glossary", True),
+                       meter=meter, only_cached=job.get("only_cached", False))
         store.write(job_id, state="done", stage="done", usage=translator.usage.as_dict(),
-                    finished=time.time())
+                    finished=time.time(), spent_cny=round(meter.spent, 4),
+                    partial=bool(job.get("only_cached", False)))
         if send_mail and job.get("email"):
             try:
                 stem = Path(job["filename"]).stem or "book"
@@ -174,11 +187,17 @@ def run_job(root, job_id, api_key, backend_factory=default_backend, provider="ap
                 store.write(job_id, email_state="sent")
             except Exception:  # the PDF is still downloadable; just record the failure
                 store.write(job_id, email_state="failed")
+    except SpendLimitReached as e:  # the translated pages are cached; the user decides what next
+        rest = rest_estimate(e.spent, last["done"], last["total"]) if last["stage"] == "translate" else None
+        store.write(job_id, state="needs_decision", spent_cny=round(e.spent, 4), est_rest_cny=rest,
+                    usage=translator.usage.as_dict() if translator else {})
     except Cancelled:  # finished pages stay in the cache; Start continues from there
         (path / "cancel").unlink(missing_ok=True)
-        store.write(job_id, state="paused", stage="", usage=translator.usage.as_dict() if translator else {})
+        store.write(job_id, state="paused", stage="", spent_cny=round(meter.spent, 4),
+                    usage=translator.usage.as_dict() if translator else {})
     except BaseException as e:  # report every failure to the browser, never lose the job
         usage = translator.usage.as_dict() if translator else {}
-        store.write(job_id, state="failed", error=_failure_text(e, api_key), usage=usage, finished=time.time())
+        store.write(job_id, state="failed", error=_failure_text(e, api_key), usage=usage,
+                    finished=time.time(), spent_cny=round(meter.spent, 4))
         if not isinstance(e, Exception):
             raise

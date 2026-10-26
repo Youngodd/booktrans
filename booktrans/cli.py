@@ -7,7 +7,10 @@ from .backends import BACKENDS, make_backend
 from .backends.base import BackendError
 from .pipeline import MIN_TEXT_CHARS, default_output, translate_book
 from .readers import parse_range, read_book
+from .spend import DEFAULT_LIMIT_CNY, Meter, SpendLimitReached, rest_estimate
 from .usage import Usage
+
+EXIT_SPEND_LIMIT = 3  # stopped at the spend limit; progress is saved
 
 DOC = """Translate an English book (PDF / EPUB / TXT) into a bilingual PDF.
 
@@ -46,6 +49,12 @@ def parse_args():
     ap.add_argument("--ocr-backend", choices=list(BACKENDS),
                     help="backend for OCR (default: --backend)")
     ap.add_argument("--ocr-model", help="model for OCR (default: --model)")
+    ap.add_argument("--max-spend", type=float, default=DEFAULT_LIMIT_CNY, metavar="YUAN",
+                    help="stop and ask before spending more than this many yuan on the book "
+                         "in total, across runs (default %(default)s; 0 = no limit). Prices "
+                         "are estimates; see booktrans/spend.py")
+    ap.add_argument("--finish-partial", action="store_true",
+                    help="spend nothing: write the PDF from the pages already translated")
     return ap.parse_args()
 
 
@@ -67,6 +76,32 @@ def main():
     except (ValueError, BackendError) as e:
         sys.exit(f"{e}\nProgress is saved; run the same command again to resume."
                  if isinstance(e, BackendError) else str(e))
+
+
+def decide(e, last, out):
+    """The spend limit was reached: ask what to do. Returns ("raise", yuan), ("finish",) or ("cancel",)."""
+    rest = rest_estimate(e.spent, last.get("done", 0), last.get("total", 0)) if last.get("stage") == "translate" else None
+    print(f"\nSpend limit reached: ¥{e.spent:.2f} of ¥{e.limit:.2f}. The pages translated so far are saved."
+          + (f" About ¥{rest:.2f} more is needed to finish (a rough estimate)." if rest else ""))
+    if not sys.stdin.isatty():
+        print(f"Run again with --max-spend N (more than {e.spent:.2f}, or 0 for no limit) to carry on, "
+              f"or with --finish-partial to write the PDF from the pages already translated.",
+              file=sys.stderr)
+        sys.exit(EXIT_SPEND_LIMIT)
+    while True:
+        answer = input("[r] raise the limit and continue   [f] finish with the translated pages   "
+                       "[c] cancel > ").strip().lower()
+        if answer == "r":
+            try:
+                new = float(input(f"New limit in yuan, more than {e.spent:.2f} (0 = no limit): "))
+            except ValueError:
+                continue
+            if new == 0 or new > e.spent:
+                return ("raise", new)
+        elif answer == "f":
+            return ("finish",)
+        elif answer == "c":
+            return ("cancel",)
 
 
 def run(args):
@@ -93,8 +128,36 @@ def run(args):
               "(scanned?). Re-run with --ocr to read them.", file=sys.stderr)
 
     out = args.output or default_output(args.book, args.pages)
-    translate_book(args.book, out, translator, ocr_backend=ocr_backend, pages=args.pages,
-                   redo=args.redo, flat=args.flat, progress=make_progress(),
-                   glossary_file=args.glossary, auto_glossary=not args.no_auto_glossary)
-    print(f"Done: {out}")
-    usage.report(out)
+    if args.finish_partial:
+        translate_book(args.book, out, translator, pages=args.pages, flat=args.flat, only_cached=True)
+        print(f"Done (translated pages only): {out}")
+        return
+    limit, last, show = args.max_spend, {}, make_progress()
+
+    def progress(stage, done, total):
+        last.update(stage=stage, done=done, total=total)
+        show(stage, done, total)
+
+    try:
+        while True:
+            meter = Meter(limit, out.with_suffix(".spend.json"))  # the total is kept across runs
+            try:
+                translate_book(args.book, out, translator, ocr_backend=ocr_backend, pages=args.pages,
+                               redo=args.redo, flat=args.flat, progress=progress,
+                               glossary_file=args.glossary, auto_glossary=not args.no_auto_glossary,
+                               meter=meter)
+                break
+            except SpendLimitReached as e:
+                choice = decide(e, last, out)
+                if choice[0] == "raise":
+                    limit = choice[1]
+                elif choice[0] == "finish":
+                    translate_book(args.book, out, translator, pages=args.pages, flat=args.flat,
+                                   only_cached=True)
+                    print(f"Done (translated pages only): {out}")
+                    return
+                else:
+                    sys.exit("Cancelled. Progress is saved; run the same command to carry on.")
+        print(f"Done: {out}")
+    finally:
+        usage.report(out)  # once, for everything this run paid for

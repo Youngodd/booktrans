@@ -36,6 +36,7 @@ class OpenAICompatBackend(LLMBackend):
         import openai
         cfg = PROVIDERS[provider]
         super().__init__(model or cfg["model"], usage)
+        self.provider = provider  # the spend guard prices calls by provider
         base_url = cfg["base_url"] or os.environ.get("BOOKTRANS_BASE_URL")
         if not base_url:
             raise ValueError(f"Set BOOKTRANS_BASE_URL to use the {provider} backend.")

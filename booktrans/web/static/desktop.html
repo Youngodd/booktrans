@@ -225,6 +225,9 @@
     <label class="check"><input type="checkbox" id="review">
       <span>Review the names before translating, so each name has one fixed rendering. 翻译前先核对人名、地名译法。</span></label>
     <p class="hint" id="estimate"></p>
+    <label for="limit">Spend limit for this book 本书费用上限 (¥)</label>
+    <input type="text" id="limit" inputmode="decimal" autocomplete="off" placeholder="10">
+    <p class="hint">Translation stops and asks you when this is reached; the pages already translated are kept. 0 means no limit. Costs are estimates. 达到上限会暂停并询问，已翻译的页面不会丢失；0 表示不限；费用为估算值。</p>
     <label class="check"><input type="checkbox" id="rights">
       <span>I confirm I have the right to translate this book and take responsibility for it. 我确认我有权翻译这本书，并对其使用负责。</span></label>
     <div class="actions">
@@ -249,6 +252,17 @@
     <div class="bar"><div id="bar"></div></div>
     <p class="msg" id="stage"></p>
     <p class="msg err" id="runerr"></p>
+    <div id="decision" class="hidden">
+      <p class="msg" id="decision-text"></p>
+      <label for="newlimit">New limit 新的上限 (¥, 0 = no limit 不限)</label>
+      <input type="text" id="newlimit" inputmode="decimal" autocomplete="off">
+      <div class="actions">
+        <button class="solid" id="btn-raise">Raise the limit and continue 提高上限并继续</button>
+        <button class="secondary" id="btn-finish-partial">Finish with the translated pages 只输出已翻译的页</button>
+        <button class="secondary" id="btn-stop">Stop for now 先停下</button>
+      </div>
+      <p class="msg err" id="decision-err"></p>
+    </div>
     <div class="actions">
       <button class="secondary hidden" id="btn-cancel">Cancel 取消</button>
       <button class="secondary hidden" id="btn-continue">Continue 继续</button>
@@ -289,6 +303,7 @@ const KEY_PAGES = {
 };
 const PROVIDER_NAMES = { api: "Anthropic Claude", qwen: "Qwen (China 国内站)", "qwen-intl": "Qwen (international 国际站)", deepseek: "DeepSeek" };
 
+let est = {}, defaultLimit = 10;
 let token = "", job = null, timer = null, provider = "", savedPath = "", bridge = null, hasKey = false;
 
 // the shell opens the page as /#token=...; keep the token in memory only
@@ -397,16 +412,23 @@ function pageCount() {
   if (!mm) return total;
   return Math.max(Math.min(+(mm[2] || mm[1]), total) - Math.max(+mm[1], 1) + 1, 0);
 }
+function limitValue() {  // yuan; null when the box does not hold a number
+  const t = $("limit").value.trim();
+  if (t === "") return defaultLimit;
+  const v = Number(t);
+  return Number.isFinite(v) && v >= 0 ? v : null;
+}
 function updateEstimate() {
   if (!job) return;
-  if (provider !== "api") {
-    $("estimate").textContent = "费用按你的 API key 在该供应商处计费，请查看其价格。 Billed by the provider to your key; see their pricing.";
-    return;
-  }
-  const n = pageCount();
-  $("estimate").textContent = n + " 页 pages ≈ US$" + (n * job.est_cost_per_page).toFixed(2) + " (估计值 estimate, 按你的 key 计费 billed to your key)";
+  const per = est[provider], n = pageCount();
+  if (!per) { $("estimate").textContent = ""; return; }
+  const cost = n * per, lim = limitValue();
+  $("estimate").textContent = n + " 页 pages ≈ ¥" + cost.toFixed(2) + " (估算 rough estimate; " +
+    (provider === "api" ? "按一本书的实测 measured on one book" : "费率未核实 rate not verified") + ", 按你的 key 计费 billed to your key)" +
+    (lim && cost > lim ? " — 超过上限，会中途暂停 above your limit, it will pause" : "");
 }
 $("pages").addEventListener("input", updateEstimate);
+$("limit").addEventListener("input", updateEstimate);
 
 $("file").addEventListener("change", () => {
   const f = $("file").files[0];
@@ -465,15 +487,27 @@ async function start(preview) {
   if ($("review").checked) return reviewNames(preview);
   begin(preview);
 }
-async function begin(preview) {
+async function begin(preview, extra = {}) {
+  const lim = limitValue();
+  if (lim === null) { show("step-setup", true); $("startmsg").textContent = "费用上限请输入数字 Enter a number for the spend limit."; return; }
   try {
-    const j = await api("/api/jobs/" + job.id + "/start", json("POST", { provider, pages: $("pages").value, preview, ocr: $("ocr").checked, auto_glossary: true }));
+    const j = await api("/api/jobs/" + job.id + "/start", json("POST", Object.assign({ provider, pages: $("pages").value, preview, ocr: $("ocr").checked, auto_glossary: true, spend_limit: lim }, extra)));
     render(j); poll();
   } catch (e) { show("step-setup", true); $("startmsg").textContent = e.message; }
 }
 $("btn-start").onclick = () => start(false);
 $("btn-preview").onclick = () => start(true);
 $("btn-continue").onclick = () => begin(!!job.preview);
+$("btn-raise").onclick = () => {
+  const t = $("newlimit").value.trim(), v = Number(t);
+  if (t === "" || !Number.isFinite(v) || v < 0 || (v > 0 && v <= (job.spent_cny || 0))) {
+    $("decision-err").textContent = "请输入大于已花费 ¥" + (job.spent_cny || 0).toFixed(2) + " 的数字，或 0。 Enter a number above what is spent (¥" + (job.spent_cny || 0).toFixed(2) + "), or 0.";
+    return;
+  }
+  $("decision-err").textContent = ""; $("limit").value = String(v); begin(!!job.preview);
+};
+$("btn-finish-partial").onclick = () => begin(!!job.preview, { only_cached: true });
+$("btn-stop").onclick = async () => { try { render(await api("/api/jobs/" + job.id + "/cancel", { method: "POST" })); } catch (e) { $("decision-err").textContent = e.message; } };
 $("btn-cancel").onclick = async () => { $("btn-cancel").disabled = true; try { await api("/api/jobs/" + job.id + "/cancel", { method: "POST" }); } catch (e) {} };
 
 function render(j) {
@@ -483,7 +517,16 @@ function render(j) {
   $("bar").style.width = (j.state === "done" ? 100 : (j.total ? 100 * j.done / j.total : 0)) + "%";
   $("runerr").textContent = j.state === "failed" ? j.error : "";
   $("stage").className = "msg" + (j.state === "done" ? " done" : "");
-  $("stage").textContent = j.state === "done" ? (j.preview ? "试译完成（前几页） Preview ready" : "完成 Done")
+  const spent = j.spent_cny ? "  ·  已花费 spent ¥" + j.spent_cny.toFixed(2) : "";
+  show("decision", j.state === "needs_decision");
+  if (j.state === "needs_decision") {
+    const rest = j.est_rest_cny ? "；剩余约 about ¥" + j.est_rest_cny.toFixed(2) + " 才能翻完 more to finish (估算 estimate)" : "";
+    $("decision-text").textContent = "已达到费用上限 Spend limit reached：已花费 ¥" + (j.spent_cny || 0).toFixed(2) + " / 上限 ¥" + (j.spend_limit || 0).toFixed(2) +
+      "。已翻译 " + j.done + "/" + j.total + " 页，已保存 pages translated and saved" + rest + "。请选择 Choose:";
+    $("newlimit").value = String(Math.ceil((j.spent_cny || 0) + 10)); $("decision-err").textContent = "";
+  }
+  $("stage").textContent = j.state === "done" ? (j.partial ? "完成（仅已翻译的页） Done, translated pages only" : j.preview ? "试译完成（前几页） Preview ready" : "完成 Done") + spent
+    : j.state === "needs_decision" ? "已暂停：费用上限 Paused at the spend limit" + spent
     : j.state === "failed" ? "失败 Failed — 进度已保存，可点“继续” progress is saved, press Continue"
     : j.state === "paused" ? "已暂停 Paused — 进度已保存，点“继续”接着翻译 progress is saved, press Continue"
     : (STAGES[j.stage] || j.stage) + (j.total ? " " + j.done + "/" + j.total : "");
@@ -538,6 +581,8 @@ $("btn-reveal").onclick = () => { if (bridge && savedPath) bridge.reveal(savedPa
       if (s.has_key) { await bridge.use_stored_key(); cfg = await api("/api/config"); }
     }
     hasKey = cfg.has_key; provider = cfg.provider || "";
+    est = cfg.est_cny_per_page || {}; defaultLimit = cfg.default_spend_limit ?? 10;
+    if (!$("limit").value) $("limit").value = String(defaultLimit);
   } catch (e) { $("upmsg").className = "msg err"; $("upmsg").textContent = "无法连接本地服务 Cannot reach the local service."; return; }
   if (hasKey) updateUsing(); else openKeyPanel(true);
   try {  // reopen the newest book, if any

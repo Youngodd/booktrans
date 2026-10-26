@@ -30,7 +30,10 @@ def data_dir():
 class FakeBackend(LLMBackend):
     """Offline stand-in for CI smoke tests (BOOKTRANS_FAKE_BACKEND=1): `[n] 译n` per block."""
 
+    provider = "fake"  # priced at ¥1 per call (see main), so the spend guard can be tried offline
+
     def complete(self, system, user, max_tokens=4096):
+        self.usage.record({"input_tokens": 1000, "output_tokens": 1000})
         nums = re.findall(r"(?m)^\[(\d+)\]", user)
         return "\n".join(f"[{n}] 译{n}" for n in nums) if nums else "译:" + user
 
@@ -42,6 +45,9 @@ def main(argv=None):
     sock = socket.socket()
     sock.bind(("127.0.0.1", 0))
     port = sock.getsockname()[1]
+    if os.environ.get("BOOKTRANS_FAKE_BACKEND") == "1":
+        from .. import spend
+        spend.PRICES["fake"] = {"text": (500.0, 500.0), "vision": (500.0, 500.0)}  # ¥1 per fake call
     extra = {"backend_factory": lambda key, provider="api": FakeBackend()} \
         if os.environ.get("BOOKTRANS_FAKE_BACKEND") == "1" else {}
     app = create_app(data_dir(), desktop=True, token=token, **extra,

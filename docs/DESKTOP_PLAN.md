@@ -181,7 +181,7 @@ M1 (desktop mode in `web/`), done on the `desktop-app` branch:
 - [x] Entry point `python -m booktrans.desktop` (127.0.0.1, random port, prints `BOOKTRANS_READY port= token=`).
 - [x] Tests: `tests/test_desktop.py`; `tests/test_web.py` unchanged.
 - [ ] Per-provider cost estimate: only the Anthropic figure is measured; Qwen/DeepSeek per-page costs
-      need measuring before they are shown. Spend guard not started.
+      need measuring before they are shown. (Now done as estimates, see "Spend guard" below.)
 - [ ] Adapting `web/static/index.html` (first run, settings, save dialog) belongs with M2.
 
 Choices made without asking: the sidecar runs jobs in a thread (`ThreadPoolExecutor(1)`), not worker
@@ -260,3 +260,38 @@ Not covered by CI: a real window being used (clicks, dialogs), a clean machine w
 - [x] The installer shows the license page and installs `LICENSE` and the third-party list next to the app.
 - [x] About screen with license and source link (M2). PyMuPDF producer metadata is not touched by our code.
 - [ ] Still open: contributor DCO/CLA (open question 1), the unverified items in `THIRD_PARTY.md`.
+
+### Spend guard and cost estimates (done)
+
+Decision (owner): every book gets a default limit of **¥10** in total; when a call would take the spend over it, stop,
+keep the translated pages in the cache, and ask the user what to do. No spending on signing certificates.
+- [x] `booktrans/spend.py`: `Meter` counts every call through a wrapper (translation, retries, glossary, OCR) and
+      checks before each call that its estimated cost still fits; `SpendLimitReached` is not a `BackendError`, so
+      retries and the glossary cannot swallow it. The total is kept in `<output>.spend.json`, so the limit is per book
+      across runs. Limit 0 or none = count but never stop; never switched on or off silently.
+- [x] Stop behaviour: finished pages are already in the cache; the glossary names already found are saved.
+      Choices: raise the limit and continue (resumes without paying again), finish with the translated pages
+      (`only_cached`: builds the PDF from cached pages, makes no call), or stop (job becomes `paused`).
+- [x] CLI: `--max-spend YUAN` (default 10, 0 = none); on the limit it asks interactively, or exits with code 3 when
+      not interactive; `--finish-partial` builds the PDF from the cached pages.
+- [x] Web/desktop: job state `needs_decision` with `spent_cny`, `spend_limit`, `est_rest_cny`; `spend_limit` and
+      `only_cached` in the start request; `/api/config` gives `default_spend_limit` and `est_cny_per_page`.
+      **Desktop default is ¥10; the hosted service keeps the guard off unless a request sets a limit**, because the
+      hosted page and the mini program have no screen for the decision.
+- [x] Desktop page: limit field, estimate in yuan for every provider, decision panel (raise / finish / stop).
+- [x] Tests: `tests/test_spend.py` and the spend tests in `tests/test_desktop.py` (under the limit, over the limit,
+      resume without re-paying, retries counted, no limit, finish with nothing spent, CLI paths, hosted default off);
+      `packaging/ui_check.py` drives the stop and "finish" in a real window.
+
+**Caveats.** The prices in `spend.py` are **unverified estimates** (only the Anthropic cost per page, about US$0.017,
+was measured); check each provider's price page before relying on the guard. The check before a call uses a rough size
+estimate, so a call can still cost somewhat more or less than predicted; the guard stops when the *estimated* next call
+would pass the limit. A page that is half translated when the limit hits is paid for but not saved (one page at most).
+
+### Signing (M4): deferred, no money spent
+
+Owner decision: do not spend money on certificates. Unsigned installers show a Windows SmartScreen warning ("unknown
+publisher"; the user clicks More info, Run anyway) and some antivirus products may flag them. Free alternatives to
+consider later: tell users how to bypass the warning in the README, publish SHA-256 checksums next to the download,
+or apply to a free signing programme for open-source projects if one is available (not verified). The update channel
+and download hosting (GitHub Releases) need no payment but are not built.

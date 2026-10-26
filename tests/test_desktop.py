@@ -191,3 +191,103 @@ def test_proxy_address_is_validated_and_needs_the_token(make, clean_proxy_env):
     for bad in ("127.0.0.1:7890", "ftp://h:1", "http://", "not a url"):
         assert c.put("/api/proxy", json={"url": bad}).status_code == 400, bad
     assert TestClient(c.app).put("/api/proxy", json={"url": "http://h:1"}).status_code == 401
+
+
+# ---- spend guard ----
+
+from tests.conftest import PricedBackend  # noqa: E402
+
+ANY = ("needs_decision", "done", "failed", "paused")
+
+
+def priced_client(make):
+    c = make(lambda key, provider="api": PricedBackend())
+    c.put("/api/key", json={"api_key": KEY})
+    return c
+
+
+def new_job(c, text_pdf, name="b.pdf"):
+    return c.post("/api/jobs", files={"file": (name, text_pdf.read_bytes())}).json()["id"]
+
+
+def start(c, job, **body):
+    return c.post(f"/api/jobs/{job}/start", json={"auto_glossary": False, **body})
+
+
+def test_desktop_defaults_to_ten_yuan_and_hosted_to_no_guard(make, tmp_path):
+    cfg = make().get("/api/config").json()
+    assert cfg["default_spend_limit"] == 10.0 and cfg["currency"] == "CNY"
+    assert set(cfg["est_cny_per_page"]) >= {"api", "qwen", "qwen-intl", "deepseek"}
+    hosted = TestClient(create_app(tmp_path / "h", executor=ThreadPoolExecutor(1)))
+    assert hosted.get("/api/config").json()["default_spend_limit"] == 0
+
+
+def test_stop_at_the_limit_then_raise_it_and_finish(make, text_pdf):
+    c = priced_client(make)
+    job = new_job(c, text_pdf)
+    assert start(c, job, spend_limit=2.5).status_code == 200
+    j = wait(c, job, states=ANY)
+    assert j["state"] == "needs_decision"
+    assert (j["spent_cny"], j["spend_limit"], j["done"], j["total"]) == (2.0, 2.5, 2, 3)
+    assert j["est_rest_cny"] == 1.0  # about ¥1 per page, one page left
+    assert start(c, job, spend_limit=2.0).status_code == 400  # not above what is spent
+    assert start(c, job, spend_limit=-1).status_code == 400
+    assert start(c, job, spend_limit=10).status_code == 200  # raise: carries on from the cache
+    j = wait(c, job, states=ANY)
+    assert j["state"] == "done" and j["spent_cny"] == 3.0 and not j["partial"]
+
+
+def test_finish_with_the_translated_pages_spends_nothing(make, text_pdf):
+    c = priced_client(make)
+    job = new_job(c, text_pdf)
+    start(c, job, spend_limit=2.5)
+    assert wait(c, job, states=ANY)["state"] == "needs_decision"
+    assert start(c, job, only_cached=True).status_code == 200
+    j = wait(c, job, states=ANY)
+    assert j["state"] == "done" and j["partial"] and j["spent_cny"] == 2.0
+    from pypdf import PdfReader
+    import io
+    pdf = c.get(f"/api/jobs/{job}/download").content
+    assert len(PdfReader(io.BytesIO(pdf)).pages) == 4
+
+
+def test_stop_keeps_everything_and_start_can_carry_on_later(make, text_pdf):
+    c = priced_client(make)
+    job = new_job(c, text_pdf)
+    start(c, job, spend_limit=2.5)
+    wait(c, job, states=ANY)
+    assert c.post(f"/api/jobs/{job}/cancel").json()["state"] == "paused"
+    assert start(c, job, spend_limit=0).status_code == 200  # 0: no limit
+    assert wait(c, job, states=ANY)["state"] == "done"
+
+
+def test_the_default_limit_applies_when_the_request_names_none(make, text_pdf, monkeypatch):
+    from booktrans import spend
+    monkeypatch.setattr(spend, "DEFAULT_LIMIT_CNY", 2.5)
+    c = priced_client(make)
+    job = new_job(c, text_pdf)
+    start(c, job)  # no spend_limit in the request
+    assert wait(c, job, states=ANY)["state"] == "needs_decision"
+
+
+def test_hosted_service_runs_without_a_limit_unless_asked(tmp_path, text_pdf):
+    pool = ThreadPoolExecutor(1)
+    c = TestClient(create_app(tmp_path / "h", executor=pool,
+                              backend_factory=lambda key, provider="api": PricedBackend()))
+    job = c.post("/api/jobs", files={"file": ("b.pdf", text_pdf.read_bytes())}).json()["id"]
+    body = {"api_key": KEY, "auto_glossary": False}
+    assert c.post(f"/api/jobs/{job}/start", json=body).status_code == 200
+    end = time.time() + 20
+    while c.get(f"/api/jobs/{job}").json()["state"] not in ("done", "failed") and time.time() < end:
+        time.sleep(0.05)
+    j = c.get(f"/api/jobs/{job}").json()
+    assert j["state"] == "done" and j["spent_cny"] == 3.0  # counted, never stopped
+    pool.shutdown(wait=True)
+
+
+def test_the_key_never_appears_in_spend_fields(make, text_pdf):
+    c = priced_client(make)
+    job = new_job(c, text_pdf)
+    start(c, job, spend_limit=2.5)
+    j = wait(c, job, states=ANY)
+    assert KEY not in json.dumps(j)

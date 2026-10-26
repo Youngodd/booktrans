@@ -6,6 +6,7 @@ import time
 from urllib.parse import urlsplit
 from concurrent.futures import ProcessPoolExecutor
 from pathlib import Path
+from typing import Optional
 
 from fastapi import Depends, FastAPI, File, Header, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse, JSONResponse
@@ -16,6 +17,7 @@ from ..pipeline import total_pages
 from ..readers import parse_range
 from .. import glossary as glossary_mod
 from . import auth, jobs, mailer, wxcloud
+from .. import spend
 from .jobs import JobStore
 
 STATIC = Path(__file__).parent / "static"
@@ -34,6 +36,8 @@ class StartRequest(BaseModel):
     ocr: bool = False
     email: str = ""
     auto_glossary: bool = True
+    spend_limit: Optional[float] = None  # yuan for this book in total; 0 = no limit; None = the default
+    only_cached: bool = False         # finish with the pages already translated, spending nothing
 
 
 class DraftRequest(BaseModel):
@@ -98,6 +102,9 @@ def create_app(data_dir=None, *, executor=None, backend_factory=jobs.default_bac
     data_dir = data_dir or os.environ.get("BOOKTRANS_DATA", "data")
     store = JobStore(Path(data_dir) / "jobs", keep_names=desktop)
     session = {}  # desktop: this session's API key and provider, in memory only
+    # The hosted page and the mini program have no screen for "stopped at the limit, decide",
+    # so the hosted service keeps the guard off unless a request sets a limit.
+    default_limit = spend.DEFAULT_LIMIT_CNY if desktop else 0
     executor = executor or ProcessPoolExecutor(int(os.environ.get("BOOKTRANS_WORKERS", "2")))
     secret = secret or os.environ.get("BOOKTRANS_SECRET") or secrets.token_hex(32)
     app = FastAPI(title="Book translator", docs_url=None, redoc_url=None)
@@ -156,7 +163,8 @@ def create_app(data_dir=None, *, executor=None, backend_factory=jobs.default_bac
     def public(job):
         keys = ("id", "filename", "state", "stage", "done", "total", "error", "pages_total",
                 "range", "preview", "usage", "email_state", "glossary_state", "glossary_error",
-                "glossary_count", "auto_glossary")
+                "glossary_count", "auto_glossary", "spent_cny", "spend_limit", "est_rest_cny",
+                "partial")
         return {k: job[k] for k in keys if k in job} | {"est_cost_per_page": EST_COST_PER_PAGE}
 
     @app.post("/api/login")
@@ -170,6 +178,8 @@ def create_app(data_dir=None, *, executor=None, backend_factory=jobs.default_bac
     @app.get("/api/config")
     def config():
         return {"email_enabled": mailer.configured(), "desktop": desktop,
+                "default_spend_limit": default_limit, "est_cny_per_page": spend.est_cny_per_page(),
+                "currency": "CNY",
                 "has_key": bool(session.get("key")), "provider": session.get("provider", ""),
                 "proxy": session.get("proxy", "")}
 
@@ -225,6 +235,9 @@ def create_app(data_dir=None, *, executor=None, backend_factory=jobs.default_bac
         @app.post("/api/jobs/{job_id}/cancel")
         def cancel(job_id: str):
             job = get_job(job_id)
+            if job["state"] == "needs_decision":  # "stop": keep everything, decide later
+                store.write(job_id, state="paused")
+                return public(store.read(job_id))
             if job["state"] not in ACTIVE:
                 raise HTTPException(409, "This job is not running.")
             (store.dir(job_id) / "cancel").write_text("1")
@@ -338,14 +351,23 @@ def create_app(data_dir=None, *, executor=None, backend_factory=jobs.default_bac
         job = get_job(job_id, viewer)
         if job["state"] in ACTIVE:
             raise HTTPException(409, "This job is already running.")
-        key = check_key(req.api_key, req.provider)
+        key = "" if req.only_cached else check_key(req.api_key, req.provider)
+        limit = default_limit if req.spend_limit is None else req.spend_limit
+        if not (0 <= limit <= 1_000_000):  # also rejects NaN
+            raise HTTPException(400, "The spend limit must be 0 (no limit) or a positive amount.")
+        spent = spend.Meter(0, store.dir(job_id) / "output.spend.json").spent
+        if limit and spent >= limit and not req.only_cached:
+            raise HTTPException(400, f"¥{spent:.2f} is already spent on this book; "
+                                     "set a higher limit, or 0 for no limit.")
         email = req.email.strip()
         if email and not mailer.EMAIL_RE.match(email):
             raise HTTPException(400, "That email address does not look right.")
         rng = resolve_range(job, req.pages, req.preview)
         store.write(job_id, state="queued", stage="", done=0, total=0, error="", ocr=req.ocr,
                     range=rng, preview=req.preview, started=time.time(), email=email,
-                    email_state="", auto_glossary=req.auto_glossary)
+                    email_state="", auto_glossary=req.auto_glossary, spend_limit=limit,
+                    only_cached=req.only_cached, partial=False, spent_cny=round(spent, 4),
+                    est_rest_cny=None)
         executor.submit(jobs.run_job, str(store.root), job_id, key, backend_factory,
                         req.provider, send_mail if email else None)
         return public(store.read(job_id))
