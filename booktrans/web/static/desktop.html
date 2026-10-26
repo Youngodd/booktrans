@@ -62,7 +62,7 @@
   i, em { font-style: italic; }
 
   /* masthead */
-  .masthead { border-bottom: var(--hair) solid var(--ink); padding-block: var(--s0); }
+  .masthead { border-bottom: var(--hair) solid var(--ink); padding-block: var(--s0); position: sticky; top: 0; z-index: 5; background: var(--paper, var(--bg, Canvas)); }
   .masthead .wrap { display: flex; justify-content: space-between; align-items: baseline;
                     gap: var(--s0); flex-wrap: wrap; }
   .brand { font-size: var(--s1); font-weight: 600; letter-spacing: -0.01em; }
@@ -218,7 +218,7 @@
   <section class="step hidden" id="step-setup">
     <header><span class="no">§ 03</span><h2>Translation <i>翻译设置</i></h2></header>
     <p id="bookinfo"></p>
-    <p class="hint" id="using"></p>
+    <p class="hint"><span id="using"></span> <button class="secondary" id="btn-usingkey" type="button">Change key / provider 更换 key 或供应商</button></p>
     <label for="pages">Page range 页码范围 <span style="font-weight:400;color:var(--mute)">(optional 可留空)</span></label>
     <input type="text" id="pages" placeholder="e.g. 1-20 例如 1-20">
     <label class="check"><input type="checkbox" id="ocr">
@@ -368,6 +368,7 @@ $("btn-saveproxy").onclick = async () => {
   if (r.ok) $("proxy").placeholder = r.proxy || "http://127.0.0.1:7890";
 };
 $("btn-settings").onclick = () => openKeyPanel(false);
+$("btn-usingkey").onclick = () => openKeyPanel(!hasKey);
 $("btn-changekey").onclick = () => openKeyPanel(!hasKey);
 $("btn-closekey").onclick = () => show("step-key", false);
 

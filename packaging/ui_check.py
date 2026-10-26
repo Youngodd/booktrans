@@ -70,6 +70,13 @@ def run(window, side):
         until(window, "document.getElementById('step-key').classList.contains('hidden')")
         assert shell.stored_key() == ("api", "sk-ant-ui-check-key-00000000")
         assert side.http.get("/api/config").json()["has_key"]
+        # settings can be reopened after the key was saved
+        window.evaluate_js("document.getElementById('btn-settings').click()")
+        assert until(window, "!document.getElementById('step-key').classList.contains('hidden')"), "Settings did not open"
+        window.evaluate_js("document.getElementById('btn-closekey').click()")
+        window.evaluate_js("document.getElementById('btn-usingkey').click()")  # the button next to "Provider:"
+        assert until(window, "!document.getElementById('step-key').classList.contains('hidden')"), "Change key button"
+        window.evaluate_js("document.getElementById('btn-closekey').click()")
         # a book (uploaded over HTTP; the file chooser is native) then reload: the page reopens it
         book = work / "化学之树.pdf"
         make_book(book)
