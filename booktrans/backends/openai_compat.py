@@ -56,8 +56,10 @@ class OpenAICompatBackend(LLMBackend):
             resp = self.client.chat.completions.create(
                 model=model, messages=messages, max_tokens=max_tokens)
         except (openai.AuthenticationError, openai.PermissionDeniedError) as e:
-            raise AuthError("The API key was rejected. Check that it is correct, "
-                            "has credit and may use this model.") from e
+            why = (getattr(e, "message", "") or "")[:300]  # the provider's own reason (never contains the key)
+            raise AuthError(f"The provider refused the call to model \"{model}\" ({why or 'no reason given'}). "
+                            "Check that the key is correct, the account has credit, and this model is "
+                            "activated for it (scanned pages use the vision model).") from e
         except openai.OpenAIError as e:
             raise BackendError(f"API error: {e}") from e
         u = resp.usage

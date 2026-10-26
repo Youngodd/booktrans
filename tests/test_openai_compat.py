@@ -89,3 +89,12 @@ def test_custom_provider_needs_base_url_and_model(monkeypatch):
         make_backend("openai-compatible", api_key="k")
     b = make_backend("openai-compatible", model="m", api_key="k")
     assert str(b.client.base_url).startswith("http://localhost:1/v1")
+
+
+def test_a_refused_vision_call_names_the_model_and_the_providers_reason():
+    err = http_error(openai.PermissionDeniedError, 403)
+    err.message = "Model access denied."
+    with pytest.raises(AuthError) as e:
+        backend(err).ocr_image(b"jpeg", "read")
+    text = str(e.value)
+    assert "qwen-vl-max" in text and "Model access denied." in text and "k-123" not in text
