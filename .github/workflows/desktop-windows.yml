@@ -27,6 +27,7 @@ jobs:
       - name: Install
         run: |
           python -m pip install -r requirements-web.txt -r requirements-dev.txt pyinstaller pywebview keyring
+          echo "::notice title=versions::$(python -m pip freeze | grep -i -E '^(pymupdf|numpy|opencv|pywebview|pyinstaller|reportlab|fastapi|uvicorn|httpx|keyring)' | tr '\n' ' ')"
       - name: Tests
         shell: bash
         run: |

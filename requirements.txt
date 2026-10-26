@@ -2,7 +2,9 @@ pypdf
 reportlab
 ebooklib
 beautifulsoup4
-pymupdf
+# pinned: newer releases load an optional layout feature on import whose data files the
+# PyInstaller bundle does not include (the frozen app failed at the first book). Re-test before raising it.
+pymupdf==1.26.5
 anthropic
 openai
 opencv-python-headless
