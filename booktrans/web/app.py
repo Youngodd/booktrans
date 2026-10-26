@@ -187,6 +187,8 @@ def create_app(data_dir=None, *, executor=None, backend_factory=jobs.default_bac
         @app.put("/api/key")
         def set_key(req: KeyRequest):
             """Hold the key for this session. The shell keeps the stored copy; it is never echoed."""
+            if not req.api_key.strip():  # never fall back to the old key: this call replaces it
+                raise HTTPException(400, "Enter your API key.")
             key = check_key(req.api_key, req.provider)
             try:
                 backend_factory(key, req.provider).complete("Reply with OK.", "OK", max_tokens=1)

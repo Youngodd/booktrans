@@ -138,7 +138,8 @@ class Api:
 
     def has_key(self):
         found = stored_key()
-        return {"has_key": bool(found), "provider": found[0] if found else ""}
+        return {"has_key": bool(found), "provider": found[0] if found else "",
+                "hint": "…" + found[1][-4:] if found else ""}  # last 4 characters only, never the key
 
     def use_stored_key(self):
         """Give the stored key to the sidecar for this session; call once at start-up."""
@@ -149,10 +150,16 @@ class Api:
 
     def save_key(self, provider, key):
         """Check the key with the provider (via the sidecar); store it only if it passes."""
+        if not (key or "").strip():
+            return {"ok": False, "status": 400, "error": "请输入 key。 Enter a key."}
         result = self._push(provider, key)
         if result["ok"]:
             import keyring
-            keyring.set_password(SERVICE, ACCOUNT, f"{provider}:{key}")
+            try:
+                keyring.set_password(SERVICE, ACCOUNT, f"{provider}:{key}")
+            except Exception as e:  # the key works for this session but could not be kept
+                return {"ok": False, "status": 500,
+                        "error": f"key 可用但无法保存到系统凭据库 The key works but could not be stored: {type(e).__name__}"}
         return result
 
     def delete_key(self):
@@ -161,7 +168,7 @@ class Api:
             keyring.delete_password(SERVICE, ACCOUNT)
         except keyring.errors.PasswordDeleteError:
             pass
-        self._sidecar.http.delete("/api/key")
+        self._sidecar.http.delete("/api/key")  # the running session forgets it too
         return {"ok": True}
 
     def get_proxy(self):

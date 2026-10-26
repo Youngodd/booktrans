@@ -310,3 +310,126 @@ def test_unexpected_failure_is_logged_with_the_key_blanked(make, text_pdf, capsy
     err = capsys.readouterr().err
     assert j["state"] == "failed" and j["error"] == "Something went wrong while translating this book."
     assert "Job failed" in err and "boom with ***" in err and KEY not in err
+
+
+NEW_KEY = "sk-ant-replacement-9876543210zyxw"
+
+
+def test_a_saved_key_can_be_replaced_corrected_and_cleared(make):
+    seen = []
+
+    def factory(key, provider="api"):
+        seen.append(key)
+        if key == "sk-ant-bad-key-0000000000":
+            class Reject(FakeBackend):
+                def complete(self, *a, **k):
+                    raise AuthError("rejected")
+            return Reject()
+        return FakeBackend()
+
+    c = make(factory)
+    assert c.put("/api/key", json={"api_key": KEY}).status_code == 200
+    # a bad replacement is refused and the old key stays in use
+    assert c.put("/api/key", json={"api_key": "sk-ant-bad-key-0000000000", "provider": "qwen"}).status_code == 401
+    assert c.get("/api/config").json()["provider"] == "api"
+    assert c.get("/api/config").json()["has_key"]
+    # an empty field never re-validates the old key under the new provider
+    assert c.put("/api/key", json={"api_key": "  ", "provider": "qwen"}).status_code == 400
+    assert c.get("/api/config").json()["provider"] == "api"
+    # the corrected key replaces the old one, including the provider
+    assert c.put("/api/key", json={"api_key": NEW_KEY, "provider": "api"}).status_code == 200
+    assert NEW_KEY not in c.get("/api/config").text
+    # clearing forgets it in the running session
+    c.delete("/api/key")
+    assert not c.get("/api/config").json()["has_key"]
+
+
+def test_the_replacement_key_is_the_one_a_job_uses(make, text_pdf):
+    used = []
+
+    def factory(key, provider="api"):
+        used.append(key)
+        return FakeBackend()
+
+    c = make(factory)
+    up = c.post("/api/jobs", files={"file": ("b.pdf", text_pdf.read_bytes())}).json()
+    c.put("/api/key", json={"api_key": KEY})
+    c.put("/api/key", json={"api_key": NEW_KEY})
+    c.post(f"/api/jobs/{up['id']}/start", json={"auto_glossary": False})
+    wait(c, up["id"])
+    assert used[-1] == NEW_KEY
+
+
+@pytest.fixture
+def mem_keyring(monkeypatch):
+    import keyring
+    from keyring.backend import KeyringBackend
+
+    class Mem(KeyringBackend):
+        priority = 1
+        d = {}
+
+        def get_password(self, s, u):
+            return self.d.get((s, u))
+
+        def set_password(self, s, u, p):
+            self.d[(s, u)] = p
+
+        def delete_password(self, s, u):
+            self.d.pop((s, u), None)
+
+    old = keyring.get_keyring()
+    keyring.set_keyring(Mem())
+    yield Mem
+    keyring.set_keyring(old)
+
+
+class FakeSide:
+    """Stands in for the sidecar: answers PUT /api/key like the real one."""
+    def __init__(self, client):
+        self.http = client
+
+
+def test_shell_replaces_keeps_old_on_failure_and_hints_only_the_last_four(make, mem_keyring):
+    pytest.importorskip("keyring")
+    from booktrans.desktop import shell
+
+    def factory(key, provider="api"):
+        class B(FakeBackend):
+            def complete(self, *a, **k):
+                if "bad" in key:
+                    raise AuthError("rejected")
+                return super().complete(*a, **k)
+        return B()
+
+    api = shell.Api(FakeSide(make(factory)))
+    assert api.save_key("api", KEY)["ok"]
+    assert shell.stored_key() == ("api", KEY)
+    r = api.save_key("api", "sk-ant-bad-key-0000000000")
+    assert not r["ok"] and r["status"] == 401
+    assert shell.stored_key() == ("api", KEY)  # the working key was not overwritten
+    assert not api.save_key("api", "   ")["ok"]
+    assert api.save_key("api", NEW_KEY)["ok"] and shell.stored_key() == ("api", NEW_KEY)
+    hint = api.has_key()
+    assert hint["hint"] == "…" + NEW_KEY[-4:] and NEW_KEY not in json.dumps(hint)
+    api.delete_key()
+    assert api.has_key() == {"has_key": False, "provider": "", "hint": ""}
+    assert not api._sidecar.http.get("/api/config").json()["has_key"]
+
+
+def test_a_keyring_failure_is_reported_not_raised(make, mem_keyring, monkeypatch):
+    from booktrans.desktop import shell
+    import keyring
+
+    def boom(*a):
+        raise RuntimeError("locked")
+    monkeypatch.setattr(keyring, "set_password", boom)
+    r = shell.Api(FakeSide(make())).save_key("api", KEY)
+    assert not r["ok"] and "could not be stored" in r["error"]
+
+
+def test_the_page_offers_a_way_to_the_key_after_a_failure_and_shows_only_a_hint():
+    from pathlib import Path
+    page = (Path(__file__).parent.parent / "booktrans/web/static/desktop.html").read_text(encoding="utf-8")
+    assert 'id="btn-changekey"' in page and 'show("btn-changekey", j.state === "failed")' in page
+    assert "keyHint" in page and "k.slice(-4)" in page

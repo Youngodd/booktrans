@@ -204,6 +204,7 @@
     <div class="actions"><button class="secondary" id="btn-saveproxy">Save proxy 保存代理</button></div>
     <p class="msg" id="proxymsg"></p>
     <label for="key">API key</label>
+    <p class="hint hidden" id="keyhint"></p>
     <input type="password" id="key" autocomplete="off" spellcheck="false" placeholder="sk-ant-…">
     <p class="hint">Checked with the provider, then stored in your system's credential store (Windows Credential Manager); never written to a file or logged. 验证通过后保存在系统凭据库，不会写入文件或日志。</p>
     <div class="actions">
@@ -266,6 +267,7 @@
     <div class="actions">
       <button class="secondary hidden" id="btn-cancel">Cancel 取消</button>
       <button class="secondary hidden" id="btn-continue">Continue 继续</button>
+      <button class="secondary hidden" id="btn-changekey">Change API key 更换 key</button>
       <button class="secondary hidden" id="btn-save">Save PDF 保存 PDF</button>
       <button class="secondary hidden" id="btn-reveal">Show in folder 打开所在文件夹</button>
       <button class="secondary hidden" id="btn-again">Change settings 修改设置</button>
@@ -304,7 +306,7 @@ const KEY_PAGES = {
 const PROVIDER_NAMES = { api: "Anthropic Claude", qwen: "Qwen (China 国内站)", "qwen-intl": "Qwen (international 国际站)", deepseek: "DeepSeek" };
 
 let est = {}, defaultLimit = 10;
-let token = "", job = null, timer = null, provider = "", savedPath = "", bridge = null, hasKey = false;
+let token = "", job = null, timer = null, provider = "", savedPath = "", bridge = null, hasKey = false, keyHint = "";
 
 // the shell opens the page as /#token=...; keep the token in memory only
 const m = location.hash.match(/token=([^&]+)/);
@@ -349,6 +351,8 @@ function openKeyPanel(first) {
   show("btn-delkey", hasKey); show("btn-closekey", hasKey);
   if (provider) $("provider").value = provider;
   updateKeyForm(); $("keymsg").textContent = "";
+  $("keyhint").textContent = keyHint ? "已保存 Stored key: " + keyHint + " — 输入新 key 并保存即可替换，旧 key 在验证通过前保持不变。 Enter a new key and save to replace it; the old one stays until the new one passes." : "";
+  show("keyhint", !!(hasKey && keyHint));
   show("step-key", true);
   if (!first) $("step-key").scrollIntoView();
 }
@@ -364,6 +368,7 @@ $("btn-saveproxy").onclick = async () => {
   if (r.ok) $("proxy").placeholder = r.proxy || "http://127.0.0.1:7890";
 };
 $("btn-settings").onclick = () => openKeyPanel(false);
+$("btn-changekey").onclick = () => openKeyPanel(!hasKey);
 $("btn-closekey").onclick = () => show("step-key", false);
 
 $("btn-savekey").onclick = async () => {
@@ -372,7 +377,8 @@ $("btn-savekey").onclick = async () => {
   $("btn-savekey").disabled = true;
   try {
     let r;
-    if (bridge) r = await bridge.save_key(p, k);
+    if (!k) { r = { ok: false, error: "请输入 key。 Enter a key." }; }
+    else if (bridge) { try { r = await bridge.save_key(p, k); } catch (e) { r = { ok: false, error: "保存失败 Could not save the key." }; } }
     else { try { await api("/api/key", json("PUT", { api_key: k, provider: p })); r = { ok: true }; }
            catch (e) { r = { ok: false, error: e.message }; } }
     if (!r.ok) {
@@ -382,14 +388,14 @@ $("btn-savekey").onclick = async () => {
         : (r.error || "保存失败 Could not save the key.");
       return;
     }
-    $("key").value = ""; hasKey = true; provider = p;
+    $("key").value = ""; hasKey = true; provider = p; keyHint = "…" + k.slice(-4);
     show("step-key", false); updateUsing();
   } finally { $("btn-savekey").disabled = false; }
 };
 
 $("btn-delkey").onclick = async () => {
   if (bridge) await bridge.delete_key(); else await api("/api/key", { method: "DELETE" });
-  hasKey = false; openKeyPanel(true);
+  hasKey = false; keyHint = ""; openKeyPanel(true);
 };
 
 function updateUsing() {
@@ -532,6 +538,7 @@ function render(j) {
     : (STAGES[j.stage] || j.stage) + (j.total ? " " + j.done + "/" + j.total : "");
   show("btn-cancel", active); $("btn-cancel").disabled = false;
   show("btn-continue", j.state === "paused" || j.state === "failed");
+  show("btn-changekey", j.state === "failed");  // a failed book is often a key problem: one click to the key
   show("btn-save", j.state === "done"); show("btn-reveal", !!savedPath && j.state === "done");
   show("btn-again", !active); show("btn-delete", !active);
   show("step-setup", false);
@@ -578,7 +585,7 @@ $("btn-reveal").onclick = () => { if (bridge && savedPath) bridge.reveal(savedPa
     if (cfg.proxy) $("proxy").placeholder = cfg.proxy;
     if (!cfg.has_key && bridge) {
       const s = await bridge.has_key();
-      if (s.has_key) { await bridge.use_stored_key(); cfg = await api("/api/config"); }
+      if (s.has_key) { keyHint = s.hint || ""; await bridge.use_stored_key(); cfg = await api("/api/config"); }
     }
     hasKey = cfg.has_key; provider = cfg.provider || "";
     est = cfg.est_cny_per_page || {}; defaultLimit = cfg.default_spend_limit ?? 10;
