@@ -215,7 +215,8 @@ def headless_check():
     api = Api(side)
     print("sidecar pid", side.proc.pid)
     assert api.save_key("api", "sk-ant-shell-check-key-000000")["ok"], "key was not accepted"
-    assert api.has_key() == {"has_key": True, "provider": "api"}
+    found = api.has_key()
+    assert found["has_key"] and found["provider"] == "api" and found["hint"] == "…0000", found
     side.http.delete("/api/key")  # a fresh session: the sidecar has forgotten the key...
     assert not side.http.get("/api/config").json()["has_key"]
     assert api.use_stored_key()["ok"]  # ...and the shell hands it over again
