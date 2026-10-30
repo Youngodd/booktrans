@@ -8,11 +8,13 @@ BOOKTRANS_SIDECAR can name the app program to run with --sidecar (default: this 
 `-m booktrans.desktop`; a frozen app runs itself). The sidecar must not outlive the shell: on Windows it is put in a
 job object that kills it when the shell exits, however the shell ends.
 """
+import json
 import os
 import re
 import shutil
 import subprocess
 import sys
+import threading
 import time
 from pathlib import Path
 
@@ -125,6 +127,27 @@ def stored_key():
     return (provider, key) if key else None
 
 
+PREFS_FILE = "prefs.json"
+_prefs_lock = threading.Lock()  # the page calls set_models from several threads
+MODEL_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:/-]{0,99}$")
+
+
+def _prefs_path():
+    from .__main__ import data_dir
+    return data_dir() / PREFS_FILE
+
+
+def load_prefs():
+    """{provider: {"model": ..., "ocr_model": ...}} the user chose; {} when none or unreadable."""
+    try:
+        raw = json.loads(_prefs_path().read_text(encoding="utf-8"))["models"]
+    except (OSError, ValueError, KeyError, TypeError):
+        return {}
+    return {p: {k: v for k, v in c.items() if k in ("model", "ocr_model") and isinstance(v, str)
+                and (v == "" or MODEL_ID.match(v))}
+            for p, c in raw.items() if isinstance(p, str) and isinstance(c, dict)}
+
+
 class Api:
     """Methods the page can call as window.pywebview.api.<name>(...). The key never goes
     back to the page: it only moves between the credential store and the sidecar."""
@@ -175,6 +198,25 @@ class Api:
         r = self._sidecar.http.put("/api/key", json={"api_key": key, "provider": provider})
         return {"ok": r.status_code == 200, "status": r.status_code,
                 "error": "" if r.status_code == 200 else r.json().get("detail", "")}
+
+    def get_models(self):
+        """The model choices kept per provider (not secret; stored beside the app's data)."""
+        return load_prefs()
+
+    def set_models(self, provider, model, ocr_model):
+        """Remember the model and OCR model chosen for one provider. Empty means the default."""
+        model, ocr_model = (model or "").strip(), (ocr_model or "").strip()
+        if not isinstance(provider, str) or any(v and not MODEL_ID.match(v) for v in (model, ocr_model)):
+            return {"ok": False}
+        with _prefs_lock:
+            prefs = load_prefs()
+            prefs[provider] = {"model": model, "ocr_model": ocr_model}
+            path = _prefs_path()
+            path.parent.mkdir(parents=True, exist_ok=True)
+            tmp = path.with_suffix(".tmp")
+            tmp.write_text(json.dumps({"models": prefs}), encoding="utf-8")
+            os.replace(tmp, path)
+        return {"ok": True}
 
     def save_pdf(self, job_id, suggested_name):
         """Ask where to save the finished PDF, then copy it there."""

@@ -102,6 +102,16 @@ class Meter:
             raise SpendLimitReached(self.spent, self.limit)
 
 
+def price_approx(provider, model="", ocr_model="", ocr=False):
+    """True when a chosen model is not the one the provider's rate was written for (the guard
+    then prices it at the provider's rate, which may be too low or too high)."""
+    from .backends import catalog
+    cfg = catalog().get(provider)
+    if not cfg:
+        return False
+    return bool((model and model != cfg["model"]) or (ocr and ocr_model and ocr_model != cfg["vision"]))
+
+
 def provider_of(backend):
     return getattr(backend, "provider", None) or \
         ("api" if type(backend).__name__ == "AnthropicBackend" else "claude-cli"

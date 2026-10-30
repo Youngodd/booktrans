@@ -452,3 +452,116 @@ def test_failure_detail_never_holds_the_key(capsys):
     _, detail, text = jobs.failure_info(BackendError(f"API error: bad {KEY}"), KEY)
     assert KEY not in detail + text and "***" in detail
     assert KEY not in capsys.readouterr().err
+
+
+# ---- model and OCR model pickers ----
+
+def _recording(seen):
+    def factory(key, provider="api", **chosen):
+        seen.append((provider, chosen))
+        return FakeBackend()
+    return factory
+
+
+def _book(c, text_pdf):
+    c.put("/api/key", json={"api_key": "qwen-key-1234567890", "provider": "qwen"})
+    return c.post("/api/jobs", files={"file": ("b.pdf", text_pdf.read_bytes())}).json()["id"]
+
+
+def test_empty_model_means_the_provider_default(make, text_pdf):
+    seen = []
+    c = make(_recording(seen))
+    job = _book(c, text_pdf)
+    assert c.post(f"/api/jobs/{job}/start", json={"model": "  "}).status_code == 200
+    assert wait(c, job)["state"] == "done"
+    assert seen[-1] == ("qwen", {})  # nothing extra reaches the factory: the default applies
+
+
+def test_custom_model_and_ocr_model_reach_make_backend(make, text_pdf, monkeypatch):
+    got = {}
+    import booktrans.backends as backends
+    real = backends.make_backend
+
+    def spy(name, model=None, usage=None, api_key=None, vision_model=None):
+        got.update(name=name, model=model, vision_model=vision_model)
+        return FakeBackend()
+    monkeypatch.setattr(backends, "make_backend", spy)
+    c = make(backend_factory_default())
+    job = _book(c, text_pdf)
+    r = c.post(f"/api/jobs/{job}/start", json={"model": " qwen-max ", "ocr": True, "ocr_model": "qwen-vl-plus"})
+    assert r.status_code == 200 and wait(c, job)["state"] == "done"
+    assert got == {"name": "qwen", "model": "qwen-max", "vision_model": "qwen-vl-plus"}
+    assert c.get(f"/api/jobs/{job}").json()["price_approx"] is True
+    monkeypatch.setattr(backends, "make_backend", real)
+
+
+def backend_factory_default():
+    from booktrans.web import jobs
+    return jobs.default_backend
+
+
+@pytest.mark.parametrize("bad", ["has space", "a;b", "x" * 101, "../etc", "-lead", "模型"])
+def test_an_invalid_model_id_is_rejected_with_a_400(make, text_pdf, bad):
+    c = make()
+    job = _book(c, text_pdf)
+    for field in ("model", "ocr_model"):
+        r = c.post(f"/api/jobs/{job}/start", json={field: bad, "ocr": True})
+        assert r.status_code == 400 and "model" in r.json()["detail"].lower()
+    assert c.post(f"/api/jobs/{job}/glossary/draft", json={"model": bad}).status_code == 400
+    assert c.get(f"/api/jobs/{job}").json()["state"] == "uploaded"
+
+
+def test_ocr_model_is_refused_where_the_provider_cannot_read_pages(make, text_pdf):
+    c = make()
+    c.put("/api/key", json={"api_key": "ds-key-1234567890", "provider": "deepseek"})
+    job = c.post("/api/jobs", files={"file": ("b.pdf", text_pdf.read_bytes())}).json()["id"]
+    assert c.post(f"/api/jobs/{job}/start", json={"ocr_model": "x-vl"}).status_code == 400
+    assert c.post(f"/api/jobs/{job}/start", json={"ocr": True}).status_code == 400
+    # Anthropic reads pages with the one chosen model: a different OCR model is refused
+    c.put("/api/key", json={"api_key": KEY, "provider": "api"})
+    assert c.post(f"/api/jobs/{job}/start", json={"ocr_model": "claude-opus-5-5"}).status_code == 400
+    assert c.post(f"/api/jobs/{job}/start", json={"model": "claude-opus-5-5", "ocr_model": "claude-opus-5-5"}).status_code == 200
+
+
+def test_catalog_lists_defaults_first_and_deepseek_has_no_vision(make):
+    models = make().get("/api/config").json()["models"]
+    for name, c in models.items():
+        assert not c["models"] or c["models"][0] == c["model"], name
+        assert not c["vision_models"] or c["vision_models"][0] == c["vision"], name
+    assert models["deepseek"]["vision"] is None and models["deepseek"]["vision_models"] == []
+    assert models["api"]["ocr_shared"] is True and models["qwen"]["ocr_shared"] is False
+
+
+def test_an_unknown_model_is_priced_at_the_provider_rate_and_marked_approximate():
+    from booktrans import spend
+    from booktrans.backends import catalog
+    default = catalog()["qwen"]["model"]
+    assert spend.price_approx("qwen", "") is False and spend.price_approx("qwen", default) is False
+    assert spend.price_approx("qwen", "some-new-model") is True
+    assert spend.price_approx("qwen", "", "qwen-vl-plus", ocr=False) is False  # OCR off: its model is unused
+    assert spend.price_approx("qwen", "", "qwen-vl-plus", ocr=True) is True
+    meter = spend.Meter(0)
+    tokens = {"input_tokens": 1000, "output_tokens": 1000}
+    assert meter.cost("qwen", "text", tokens) == (1000 * 0.8 + 1000 * 2.0) / 1e6  # the provider's rate, whatever the model
+
+
+def test_hosted_requests_without_model_fields_still_work(tmp_path, text_pdf):
+    pool = ThreadPoolExecutor(max_workers=1)
+    c = TestClient(create_app(tmp_path / "data", executor=pool, backend_factory=lambda key, provider="api": FakeBackend()))
+    job = c.post("/api/jobs", files={"file": ("b.pdf", text_pdf.read_bytes())}).json()["id"]
+    r = c.post(f"/api/jobs/{job}/start", json={"api_key": KEY, "provider": "api"})
+    assert r.status_code == 200 and wait(c, job)["state"] == "done"
+    pool.shutdown(wait=True)
+
+
+def test_model_choices_are_kept_per_provider_by_the_shell(tmp_path, monkeypatch):
+    from booktrans.desktop import shell
+    monkeypatch.setenv("BOOKTRANS_DATA", str(tmp_path))
+    api = shell.Api(None)
+    assert api.get_models() == {}
+    assert api.set_models("qwen", "qwen-max", "qwen-vl-plus")["ok"]
+    assert api.set_models("deepseek", "deepseek-reasoner", "")["ok"]
+    assert api.get_models() == {"qwen": {"model": "qwen-max", "ocr_model": "qwen-vl-plus"},
+                                "deepseek": {"model": "deepseek-reasoner", "ocr_model": ""}}
+    assert api.set_models("qwen", "bad id!", "")["ok"] is False
+    assert api.get_models()["qwen"]["model"] == "qwen-max"  # a refused value changes nothing

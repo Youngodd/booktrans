@@ -24,9 +24,13 @@ const T = {
   providerUnreachable: "Could not reach the provider; check your network.",
   using: (name) => "Provider: " + name + ". Change it under Settings.",
   bookInfo: (name, n) => name + " — " + n + " pages",
-  estimate: (n, cost, measured, over) => n + " pages ≈ ¥" + cost.toFixed(2) + " (rough estimate; " +
+  estimate: (n, cost, measured, over, approx) => n + " pages ≈ ¥" + cost.toFixed(2) + " (rough estimate; " +
     (measured ? "measured on one book" : "rate not verified") + "; billed to your key)" +
-    (over ? ". Above your limit, so it will pause." : ""),
+    (over ? ". Above your limit, so it will pause." : "") +
+    (approx ? (over ? " " : ". ") + "Rate shown is the provider's; the model you chose may cost more or less." : ""),
+  modelDefault: "(default)", modelCustom: "Custom…", modelRequired: "Enter the model name.",
+  ocrShared: (m) => "Scanned pages are read with the same model (" + m + ").",
+  ocrNoVision: "This provider cannot read scanned pages.", ocrOff: "Tick the OCR option below to choose a model for scanned pages.",
   uploadFailed: "Upload failed", readFailed: "Could not read the file",
   namesCollecting: "Collecting names…",
   namesIntro: "Edit any rendering you dislike; empty means not fixed.", namesNone: "No names to fix.",

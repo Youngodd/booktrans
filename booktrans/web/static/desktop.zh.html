@@ -61,6 +61,13 @@
     <header><span class="no">§ 03</span><h2>翻译设置</h2></header>
     <p id="bookinfo"></p>
     <p class="hint"><span id="using"></span> <button class="secondary" id="btn-usingkey" type="button">更换 key 或供应商</button></p>
+    <label for="model">翻译模型</label>
+    <select id="model"></select>
+    <input type="text" id="model-custom" class="hidden" autocomplete="off" spellcheck="false" placeholder="模型名，例如 qwen-plus">
+    <label for="ocr-model">OCR 模型 <span class="opt">（扫描页）</span></label>
+    <select id="ocr-model"></select>
+    <input type="text" id="ocr-model-custom" class="hidden" autocomplete="off" spellcheck="false" placeholder="模型名，例如 qwen-plus">
+    <p class="hint" id="model-hint"></p>
     <label for="pages">页码范围 <span class="opt">（可留空）</span></label>
     <input type="text" id="pages" placeholder="例如 1-20">
     <label class="check"><input type="checkbox" id="ocr">

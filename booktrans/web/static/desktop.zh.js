@@ -24,9 +24,13 @@ const T = {
   providerUnreachable: "无法连接供应商，请检查网络。",
   using: (name) => "供应商：" + name + "。可在“设置”中更改。",
   bookInfo: (name, n) => name + " — 共 " + n + " 页",
-  estimate: (n, cost, measured, over) => n + " 页 ≈ ¥" + cost.toFixed(2) + "（粗略估算，" +
+  estimate: (n, cost, measured, over, approx) => n + " 页 ≈ ¥" + cost.toFixed(2) + "（粗略估算，" +
     (measured ? "按一本书的实测" : "费率未核实") + "；按你的 key 计费）" +
-    (over ? "。超过上限，会中途暂停。" : ""),
+    (over ? "。超过上限，会中途暂停。" : "") +
+    (approx ? (over ? "" : "。") + "所选模型的实际价格可能与此费率不同，仅供参考。" : ""),
+  modelDefault: "（默认）", modelCustom: "自定义…", modelRequired: "请输入模型名。",
+  ocrShared: (m) => "扫描页用同一个模型识别（" + m + "）。",
+  ocrNoVision: "该供应商无法识别扫描页。", ocrOff: "勾选下方的 OCR 后才能选择扫描页模型。",
   uploadFailed: "上传失败", readFailed: "无法读取这个文件",
   namesCollecting: "正在整理译名…",
   namesIntro: "改一改不满意的译名，留空则不固定。", namesNone: "没有需要固定的译名。",

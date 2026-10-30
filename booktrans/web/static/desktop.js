@@ -6,7 +6,7 @@ const KEY_PAGES = {
   deepseek: "https://platform.deepseek.com/api_keys",
 };
 
-let est = {}, defaultLimit = 10;
+let est = {}, defaultLimit = 10, models = {}, prefs = {};
 let token = "", job = null, timer = null, provider = "", savedPath = "", bridge = null, hasKey = false, keyHint = "";
 
 // the shell opens the page as /#token=...; keep the token in memory only
@@ -90,10 +90,55 @@ $("btn-delkey").onclick = async () => {
   hasKey = false; keyHint = ""; updateKeyPanel(true);
 };
 
+/* ---------- model pickers ---------- */
+const CUSTOM = "__custom__";
+function fillPicker(sel, custom, ids, def, saved) {  // ids: the short list, default first; saved: "" means the default
+  sel.innerHTML = "";
+  for (const id of ids) sel.add(new Option(id + (id === def ? " " + T.modelDefault : ""), id));
+  sel.add(new Option(T.modelCustom, CUSTOM));
+  const known = !saved || ids.includes(saved);
+  sel.value = !saved ? (def || CUSTOM) : known ? saved : CUSTOM;
+  custom.value = known ? "" : saved;
+  show(custom.id, sel.value === CUSTOM);
+}
+function pickedModel(sel, custom, def) {  // "" when the provider's default is chosen
+  const v = sel.value === CUSTOM ? custom.value.trim() : sel.value;
+  return v === def ? "" : v;
+}
+function currentModels() {
+  const c = models[provider] || {};
+  const model = pickedModel($("model"), $("model-custom"), c.model);
+  const ocrModel = c.ocr_shared || !c.vision ? "" : pickedModel($("ocr-model"), $("ocr-model-custom"), c.vision);
+  return { model, ocr_model: ocrModel };
+}
+function updateOcrPicker() {
+  const c = models[provider] || {}, sel = $("ocr-model"), usable = !!c.vision && !c.ocr_shared;
+  sel.disabled = $("ocr-model-custom").disabled = !usable || !$("ocr").checked;
+  $("model-hint").textContent = c.ocr_shared ? T.ocrShared(currentModels().model || c.model)
+    : !c.vision ? T.ocrNoVision : !$("ocr").checked ? T.ocrOff : "";
+}
+function fillPickers() {  // the choices kept for this provider, else its defaults
+  const c = models[provider]; if (!c) return;
+  const saved = prefs[provider] || {};
+  fillPicker($("model"), $("model-custom"), c.models, c.model, saved.model || "");
+  fillPicker($("ocr-model"), $("ocr-model-custom"), c.ocr_shared ? [] : c.vision_models, c.vision, saved.ocr_model || "");
+  updateOcrPicker();
+}
+function modelsChanged() {
+  show("model-custom", $("model").value === CUSTOM); show("ocr-model-custom", $("ocr-model").value === CUSTOM);
+  const m = currentModels(); prefs[provider] = m;
+  if (bridge) bridge.set_models(provider, m.model, m.ocr_model).catch(() => {});
+  updateOcrPicker(); updateEstimate();
+}
+for (const id of ["model", "ocr-model"]) $(id).addEventListener("change", modelsChanged);
+for (const id of ["model-custom", "ocr-model-custom"]) $(id).addEventListener("input", modelsChanged);
+$("ocr").addEventListener("change", () => { updateOcrPicker(); updateEstimate(); });
+
 function updateUsing() {
   $("using").textContent = T.using(T.providers[provider] || provider);
-  $("ocr").disabled = provider === "deepseek";
+  $("ocr").disabled = !(models[provider] || {}).vision;  // e.g. DeepSeek has no vision model
   if ($("ocr").disabled) $("ocr").checked = false;
+  fillPickers();
   if (job) updateEstimate();
 }
 
@@ -120,8 +165,9 @@ function updateEstimate() {
   if (!job) return;
   const per = est[provider], n = pageCount();
   if (!per) { $("estimate").textContent = ""; return; }
-  const cost = n * per, lim = limitValue();
-  $("estimate").textContent = T.estimate(n, cost, provider === "api", !!(lim && cost > lim));
+  const cost = n * per, lim = limitValue(), c = models[provider] || {}, m = currentModels();
+  const approx = !!(m.model || (m.ocr_model && $("ocr").checked));  // not the model the rate was written for
+  $("estimate").textContent = T.estimate(n, cost, provider === "api", !!(lim && cost > lim), approx);
 }
 $("pages").addEventListener("input", updateEstimate);
 $("limit").addEventListener("input", updateEstimate);
@@ -151,7 +197,7 @@ async function reviewNames(preview) {
   $("names").innerHTML = ""; show("btn-names-go", false); show("btn-names-skip", false);
   $("namesmsg").className = "msg"; $("namesmsg").textContent = T.namesCollecting;
   try {
-    await api("/api/jobs/" + job.id + "/glossary/draft", json("POST", { pages: $("pages").value, preview }));
+    await api("/api/jobs/" + job.id + "/glossary/draft", json("POST", { pages: $("pages").value, preview, model: currentModels().model }));
     let g;
     do { await new Promise((r) => setTimeout(r, 1500)); g = await api("/api/jobs/" + job.id + "/glossary"); } while (g.state === "building");
     if (g.state === "failed") throw new Error(g.error || "failed");
@@ -179,6 +225,7 @@ async function start(preview) {
   $("startmsg").textContent = "";
   if (!hasKey) { openKeyPanel(true); return; }
   if (!$("rights").checked) { $("startmsg").textContent = T.tickBox; return; }
+  if (!(models[provider] || {}).model && !currentModels().model) { $("startmsg").textContent = T.modelRequired; return; }
   if ($("review").checked) return reviewNames(preview);
   begin(preview);
 }
@@ -186,7 +233,8 @@ async function begin(preview, extra = {}) {
   const lim = limitValue();
   if (lim === null) { show("step-setup", true); $("startmsg").textContent = T.limitNumber; return; }
   try {
-    const j = await api("/api/jobs/" + job.id + "/start", json("POST", Object.assign({ provider, pages: $("pages").value, preview, ocr: $("ocr").checked, auto_glossary: true, spend_limit: lim }, extra)));
+    const j = await api("/api/jobs/" + job.id + "/start", json("POST", Object.assign({ provider, pages: $("pages").value, preview, ocr: $("ocr").checked, auto_glossary: true, spend_limit: lim,
+      model: currentModels().model, ocr_model: $("ocr").checked ? currentModels().ocr_model : "" }, extra)));
     render(j); poll();
   } catch (e) { show("step-setup", true); $("startmsg").textContent = e.message; }
 }
@@ -277,8 +325,9 @@ $("btn-reveal").onclick = () => { if (bridge && savedPath) bridge.reveal(savedPa
       const s = await bridge.has_key();
       if (s.has_key) { keyHint = s.hint || ""; await bridge.use_stored_key(); cfg = await api("/api/config"); }
     }
+    if (bridge) { try { prefs = await bridge.get_models(); } catch (e) {} }
     hasKey = cfg.has_key; provider = cfg.provider || "";
-    est = cfg.est_cny_per_page || {}; defaultLimit = cfg.default_spend_limit ?? 10;
+    est = cfg.est_cny_per_page || {}; models = cfg.models || {}; defaultLimit = cfg.default_spend_limit ?? 10;
     if (!$("limit").value) $("limit").value = String(defaultLimit);
   } catch (e) { $("upmsg").className = "msg err"; $("upmsg").textContent = T.cannotReach; return; }
   updateKeyPanel(!hasKey); if (hasKey) updateUsing();

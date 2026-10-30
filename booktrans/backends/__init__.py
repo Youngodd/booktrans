@@ -4,7 +4,7 @@ new file and add it to BACKENDS (imported lazily so unused SDKs aren't required)
 from .base import LLMBackend
 from .openai_compat import PROVIDERS
 
-__all__ = ["BACKENDS", "LLMBackend", "PROVIDERS", "make_backend"]
+__all__ = ["BACKENDS", "LLMBackend", "PROVIDERS", "catalog", "make_backend"]
 
 
 def _claude_cli():
@@ -38,3 +38,16 @@ def make_backend(name, model=None, usage=None, api_key=None, vision_model=None):
     if name == "claude-cli":
         extra.pop("api_key", None)
     return BACKENDS[name]()(model=model, usage=usage, **extra)
+
+
+def catalog():
+    """What the desktop pickers offer for each provider: the default and the short list of
+    models (default first) for text and for reading scanned pages. `ocr_shared` is true when
+    the one chosen model also reads images (Anthropic); an empty `vision_models` means no OCR."""
+    from .anthropic_api import DEFAULT_MODEL, MODELS
+    out = {"api": {"model": DEFAULT_MODEL, "models": MODELS, "vision": DEFAULT_MODEL,
+                   "vision_models": [], "ocr_shared": True}}
+    for name, cfg in PROVIDERS.items():
+        out[name] = {"model": cfg["model"], "models": cfg["models"], "vision": cfg["vision"],
+                     "vision_models": cfg["vision_models"], "ocr_shared": False}
+    return out

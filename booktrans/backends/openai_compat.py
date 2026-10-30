@@ -10,21 +10,26 @@ from .base import AuthError, BackendError, LLMBackend
 # base_url   the provider's OpenAI-compatible endpoint
 # key_env    environment variable holding the API key (used when none is passed in)
 # model      default text model;  vision: default model for reading scanned pages (or None)
+# models / vision_models   the short lists the desktop pickers offer, default first (one line to add a model)
 PROVIDERS = {
     "qwen": {  # Alibaba Cloud Model Studio, mainland China account
         "base_url": "https://dashscope.aliyuncs.com/compatible-mode/v1",
         "key_env": "DASHSCOPE_API_KEY", "model": "qwen-plus", "vision": "qwen-vl-max",
+        "models": ["qwen-plus", "qwen-max", "qwen-turbo"], "vision_models": ["qwen-vl-max", "qwen-vl-plus"],
         "label": "Qwen (Alibaba Cloud, China)"},
     "qwen-intl": {  # the same service for international accounts (Singapore)
         "base_url": "https://dashscope-intl.aliyuncs.com/compatible-mode/v1",
         "key_env": "DASHSCOPE_API_KEY", "model": "qwen-plus", "vision": "qwen-vl-max",
+        "models": ["qwen-plus", "qwen-max", "qwen-turbo"], "vision_models": ["qwen-vl-max", "qwen-vl-plus"],
         "label": "Qwen (Alibaba Cloud, international)"},
     "deepseek": {
         "base_url": "https://api.deepseek.com",
         "key_env": "DEEPSEEK_API_KEY", "model": "deepseek-chat", "vision": None,
+        "models": ["deepseek-chat", "deepseek-reasoner"], "vision_models": [],
         "label": "DeepSeek"},
     "openai-compatible": {  # anything else: set BOOKTRANS_BASE_URL, BOOKTRANS_API_KEY and --model
         "base_url": None, "key_env": "BOOKTRANS_API_KEY", "model": None, "vision": None,
+        "models": [], "vision_models": [],
         "label": "Other (BOOKTRANS_BASE_URL)"},
 }
 TIMEOUT = 180

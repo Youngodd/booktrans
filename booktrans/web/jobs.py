@@ -102,9 +102,18 @@ class JobStore:
         return removed
 
 
-def default_backend(api_key, provider="api"):
+def default_backend(api_key, provider="api", model=None, ocr_model=None):
     from ..backends import make_backend
-    return make_backend(provider, api_key=api_key)
+    return make_backend(provider, model=model or None, api_key=api_key, vision_model=ocr_model or None)
+
+
+def _chosen(job, ocr):
+    """The model choices stored on the job as factory keyword arguments. Empty ones are left out,
+    so a factory that takes only (api_key, provider) keeps working and the provider default applies."""
+    kw = {"model": job.get("model", "")}
+    if ocr:
+        kw["ocr_model"] = job.get("ocr_model", "")
+    return {k: v for k, v in kw.items() if v}
 
 
 def preview_range(pages, total):
@@ -209,7 +218,7 @@ def run_glossary_draft(root, job_id, api_key, backend_factory=default_backend, p
     path = store.dir(job_id)
     store.write(job_id, glossary_state="building", glossary_error="")
     try:
-        translator = backend_factory(api_key, provider)
+        translator = backend_factory(api_key, provider, **_chosen(job, False))
         meter = Meter(job.get("spend_limit", 0), path / "output.spend.json")
         glossary = draft_glossary(path / ("input" + job["ext"]), translator,
                                   path / "output.glossary.json", pages=pages or None, meter=meter)
@@ -248,7 +257,7 @@ def run_job(root, job_id, api_key, backend_factory=default_backend, provider="ap
     translator = None
     try:
         store.write(job_id, state="running", stage="scan", done=0, total=0, error="")
-        translator = NoCalls() if job.get("only_cached") else backend_factory(api_key, provider)
+        translator = NoCalls() if job.get("only_cached") else backend_factory(api_key, provider, **_chosen(job, job["ocr"]))
         pages = job["range"]
         translate_book(path / ("input" + job["ext"]), path / "output.pdf", translator,
                        ocr_backend=translator if job["ocr"] else None, pages=pages,

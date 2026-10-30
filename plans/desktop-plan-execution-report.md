@@ -18,7 +18,7 @@ by decision (no spending on signing). Remaining items need a person on Windows o
 | Spend guard (default ¥10 per book) | Done, green on CI | `booktrans/spend.py`, `tests/test_spend.py`, desktop tests, `ui_check.py` |
 | Per-provider cost estimate | Done as estimates | Qwen and DeepSeek rates unverified |
 | M4 signing, updates, hosting | Deferred | Owner decision: no money for certificates |
-| Model and OCR model pickers | Not done | |
+| Model and OCR model pickers | Done on macOS | `tests/test_desktop.py` (default, custom reach `make_backend`, invalid id 400, OCR refused without vision, approximate price, per-provider prefs); `packaging/ui_check.py` selects both in the real window, checks they are restored and sent. Curated model ids other than the repo defaults are from the model list in this session; not checked against provider docs. Spend guard prices any model at the provider rate |
 | Manual testing on Windows | Not done | `docs/MANUAL_TEST.md` |
 
 ## Deviations

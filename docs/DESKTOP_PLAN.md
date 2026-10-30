@@ -226,7 +226,12 @@ Built on this branch:
 - [x] Default provider by system language: a `zh-CN`/`zh` system starts on Qwen (China), others on Anthropic
       (open question 5, decided).
 - [x] UI language: the page keeps Chinese and English together (open question 4, decided: acceptable).
-- [ ] Not done: model and OCR model pickers, per-provider cost figures, spend guard, native save dialog and
+- [x] Model and OCR model pickers: a short list per provider (default first) plus "Custom…" (`catalog()` in
+      `booktrans/backends`, lists next to `PROVIDERS`); the choice is kept per provider in `prefs.json` beside the
+      app data and restored on launch; OCR picker is off when OCR is off or the provider has no vision model;
+      Anthropic uses the one model for scanned pages. A model other than the default is priced at the provider's
+      rate and the estimate says so.
+- [ ] Not done: per-provider cost figures, spend guard, native save dialog and
       "show in folder" (needs a person at the screen), Windows window check.
 
 ### M3: installer (green on Windows CI, commit `64e8416`)

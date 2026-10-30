@@ -1,6 +1,7 @@
 """The web service: upload a book, start a translation with your own API key, download."""
 import asyncio
 import os
+import re
 import secrets
 import time
 from urllib.parse import urlsplit
@@ -13,6 +14,7 @@ from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
+from ..backends import catalog
 from ..backends.base import AuthError, BackendError
 from ..pipeline import total_pages
 from ..readers import parse_range
@@ -28,6 +30,7 @@ EST_COST_PER_PAGE = 0.017  # USD on the Anthropic API, measured on a scanned his
 ACTIVE = ("queued", "running")
 MAX_GLOSSARY_ENTRIES = 500
 WEB_PROVIDERS = ("api", "qwen", "qwen-intl", "deepseek")  # bring-your-own-key suppliers
+MODEL_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:/-]{0,99}$")  # what a model name can look like
 
 
 class StartRequest(BaseModel):
@@ -40,6 +43,8 @@ class StartRequest(BaseModel):
     auto_glossary: bool = True
     spend_limit: Optional[float] = None  # yuan for this book in total; 0 = no limit; None = the default
     only_cached: bool = False         # finish with the pages already translated, spending nothing
+    model: str = ""                   # translating model; empty = the provider's default
+    ocr_model: str = ""               # model for reading scanned pages; empty = the provider's default
 
 
 class DraftRequest(BaseModel):
@@ -47,6 +52,7 @@ class DraftRequest(BaseModel):
     provider: str = "api"
     pages: str = ""
     preview: bool = False
+    model: str = ""
 
 
 class GlossaryEdit(BaseModel):
@@ -163,7 +169,10 @@ def create_app(data_dir=None, *, executor=None, backend_factory=jobs.default_bac
                 "range", "preview", "usage", "email_state", "glossary_state", "glossary_error",
                 "glossary_count", "auto_glossary", "spent_cny", "spend_limit", "est_rest_cny",
                 "partial")
-        return {k: job[k] for k in keys if k in job} | {"est_cost_per_page": EST_COST_PER_PAGE}
+        approx = spend.price_approx(job.get("provider", ""), job.get("model", ""),
+                                    job.get("ocr_model", ""), job.get("ocr", False))
+        return {k: job[k] for k in keys if k in job} | {"est_cost_per_page": EST_COST_PER_PAGE,
+                                                        "price_approx": approx}
 
     @app.post("/api/login")
     def login(req: LoginRequest):
@@ -177,7 +186,7 @@ def create_app(data_dir=None, *, executor=None, backend_factory=jobs.default_bac
     def config():
         return {"email_enabled": mailer.configured(), "desktop": desktop,
                 "default_spend_limit": default_limit, "est_cny_per_page": spend.est_cny_per_page(),
-                "currency": "CNY",
+                "currency": "CNY", "models": catalog(),
                 "has_key": bool(session.get("key")), "provider": session.get("provider", "")}
 
     if desktop:
@@ -286,6 +295,29 @@ def create_app(data_dir=None, *, executor=None, backend_factory=jobs.default_bac
             raise HTTPException(400, "Enter your API key for the chosen provider.")
         return key
 
+    def provider_for(req):
+        """The provider a request runs on: in the desktop app, the one the saved key belongs to."""
+        return session.get("provider", req.provider) if desktop and not req.api_key else req.provider
+
+    def check_models(provider, model, ocr_model, ocr):
+        """(model, ocr_model) trimmed and checked; empty means the provider's default."""
+        model, ocr_model = model.strip(), ocr_model.strip()
+        for name in (model, ocr_model):
+            if name and not MODEL_ID.match(name):
+                raise HTTPException(400, "That does not look like a model name "
+                                         "(letters, digits and . _ : / - only).")
+        cfg = catalog()[provider]
+        if not (model or cfg["model"]):
+            raise HTTPException(400, "Enter the model name for this provider.")
+        if ocr_model and cfg["ocr_shared"] and ocr_model != model:
+            raise HTTPException(400, "This provider reads scanned pages with the translating model; "
+                                     "leave the OCR model empty.")
+        if ocr_model and not cfg["ocr_shared"] and not cfg["vision"]:
+            raise HTTPException(400, "This provider has no model for scanned pages.")
+        if ocr and not cfg["vision"]:
+            raise HTTPException(400, "This provider cannot read scanned pages; turn OCR off.")
+        return model, ocr_model
+
     def resolve_range(job, pages, preview):
         """The "start-end" page range a job will cover, or an HTTP 400 if it is not valid."""
         try:
@@ -307,9 +339,11 @@ def create_app(data_dir=None, *, executor=None, backend_factory=jobs.default_bac
             raise HTTPException(409, "This job is already running.")
         key = check_key(req.api_key, req.provider)
         rng = resolve_range(job, req.pages, req.preview)
-        store.write(job_id, glossary_state="building", glossary_error="")
+        provider = provider_for(req)
+        model, _ = check_models(provider, req.model, "", False)
+        store.write(job_id, glossary_state="building", glossary_error="", model=model)
         executor.submit(jobs.run_glossary_draft, str(store.root), job_id, key, backend_factory,
-                        req.provider, rng)
+                        provider, rng)
         return public(store.read(job_id))
 
     @app.get("/api/jobs/{job_id}/glossary")
@@ -357,13 +391,15 @@ def create_app(data_dir=None, *, executor=None, backend_factory=jobs.default_bac
         if email and not mailer.EMAIL_RE.match(email):
             raise HTTPException(400, "That email address does not look right.")
         rng = resolve_range(job, req.pages, req.preview)
-        store.write(job_id, state="queued", stage="", done=0, total=0, error="", ocr=req.ocr,
+        provider = provider_for(req)
+        model, ocr_model = check_models(provider, req.model, req.ocr_model, req.ocr)
+        store.write(job_id, state="queued", provider=provider, model=model, ocr_model=ocr_model, stage="", done=0, total=0, error="", ocr=req.ocr,
                     range=rng, preview=req.preview, started=time.time(), email=email,
                     email_state="", auto_glossary=req.auto_glossary, spend_limit=limit,
                     only_cached=req.only_cached, partial=False, spent_cny=round(spent, 4),
                     est_rest_cny=None)
         executor.submit(jobs.run_job, str(store.root), job_id, key, backend_factory,
-                        req.provider, send_mail if email else None)
+                        provider, send_mail if email else None)
         return public(store.read(job_id))
 
     def cloud_env(request):

@@ -4,6 +4,7 @@ import base64
 from .base import AuthError, BackendError, LLMBackend
 
 DEFAULT_MODEL = "claude-sonnet-5-5"
+MODELS = [DEFAULT_MODEL, "claude-opus-5-5", "claude-haiku-5-5"]  # the desktop picker; the one model also reads scanned pages
 
 
 class AnthropicBackend(LLMBackend):

@@ -62,6 +62,13 @@
     <header><span class="no">§ 03</span><h2>Translation</h2></header>
     <p id="bookinfo"></p>
     <p class="hint"><span id="using"></span> <button class="secondary" id="btn-usingkey" type="button">Change key / provider</button></p>
+    <label for="model">Model</label>
+    <select id="model"></select>
+    <input type="text" id="model-custom" class="hidden" autocomplete="off" spellcheck="false" placeholder="model id, e.g. qwen-plus">
+    <label for="ocr-model">OCR model <span class="opt">(scanned pages)</span></label>
+    <select id="ocr-model"></select>
+    <input type="text" id="ocr-model-custom" class="hidden" autocomplete="off" spellcheck="false" placeholder="model id, e.g. qwen-plus">
+    <p class="hint" id="model-hint"></p>
     <label for="pages">Page range <span class="opt">(optional)</span></label>
     <input type="text" id="pages" placeholder="e.g. 1-20">
     <label class="check"><input type="checkbox" id="ocr">

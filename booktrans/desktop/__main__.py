@@ -48,7 +48,7 @@ def main(argv=None):
     if os.environ.get("BOOKTRANS_FAKE_BACKEND") == "1":
         from .. import spend
         spend.PRICES["fake"] = {"text": (500.0, 500.0), "vision": (500.0, 500.0)}  # ¥1 per fake call
-    extra = {"backend_factory": lambda key, provider="api": FakeBackend()} \
+    extra = {"backend_factory": lambda key, provider="api", **chosen: FakeBackend()} \
         if os.environ.get("BOOKTRANS_FAKE_BACKEND") == "1" else {}
     app = create_app(data_dir(), desktop=True, token=token, **extra,
                      executor=ThreadPoolExecutor(1))  # threads: no frozen-multiprocessing
