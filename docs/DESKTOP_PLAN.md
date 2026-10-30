@@ -115,7 +115,7 @@ MVP:
 - Per-provider cost estimate in the right currency, and a spend guard so retries cannot run up a bill
   on the user's key.
 - Save PDF where the user chooses; open folder.
-- Proxy setting (desktop apps do not inherit shell proxy variables; many users need one).
+- ~~Proxy setting~~ Dropped: the app makes direct requests and has no proxy setting.
 - Simplified Chinese and English UI (to be confirmed).
 
 Deferred: auto-update, macOS build, job history list, batch queue, phone-as-remote, `claude-cli`.
@@ -154,8 +154,8 @@ Order: M0, then M1-M4 in sequence. Each step is testable on its own.
 - **Antivirus false positives.** Prefer onedir builds; signing helps.
 - **Long books.** Memory use of `layout.py` and OpenCV on 400-page scans; cap concurrency.
 - **Rate limits and failures.** Retries exist; add a clear paused state with Continue.
-- **Reachability.** Anthropic is not reachable from mainland China without a proxy; consider a default
-  provider by system locale.
+- **Reachability.** Anthropic is not reachable from mainland China, and the app has no proxy setting; the default
+  provider follows the system locale (Qwen on a Chinese-language system).
 - **Copyright.** See `LEGAL_DISCUSSION.md`; running locally moves the act to the user, but the app
   should say so.
 - **Privacy.** Book text goes to the chosen provider; say so on first run. No telemetry.
@@ -222,9 +222,7 @@ Built on this branch:
 - [x] Desktop API: `GET /api/jobs` (the page reopens the newest book). Shell: `reveal`, `open_url` (allow-list).
 - [x] `packaging/ui_check.py` drives the real window on macOS: first run, key saved, book reopened, name review,
       translated. Passes. Not run in CI (needs a desktop session).
-- [x] Proxy setting (first-run and Settings): `PUT /api/proxy` sets the proxy variables the provider SDKs read at job
-      start; the shell keeps the address in the credential store (it may hold a password) and restores it at start-up;
-      the page only sees host:port. Empty means the system settings. HTTP(S) proxies only; SOCKS is not supported.
+- [x] Proxy setting: built, then removed (the app makes direct requests; `/api/proxy` and the shell's proxy storage are gone).
 - [x] Default provider by system language: a `zh-CN`/`zh` system starts on Qwen (China), others on Anthropic
       (open question 5, decided).
 - [x] UI language: the page keeps Chinese and English together (open question 4, decided: acceptable).

@@ -11,7 +11,7 @@ by decision (no spending on signing). Remaining items need a person on Windows o
 | Step | Status | Evidence |
 | --- | --- | --- |
 | M0 spike: Windows bundle, Chinese rendering, shell comparison | Mostly done | CI smoke test with Chinese paths; `docs/SHELL_COMPARISON.md`. Not done: scanned-PDF and EPUB samples, 400-page memory test |
-| M1 desktop mode, cancel, key and proxy endpoints | Done | `tests/test_desktop.py` |
+| M1 desktop mode, cancel, key endpoints (the proxy endpoint was later removed) | Done | `tests/test_desktop.py` |
 | M2 shell and screens | Done on macOS | `packaging/ui_check.py` drives the real window; not used by a person on Windows |
 | M3 installer, CI | Done, green on Windows (run for `64e8416`) | 87 MB installer; silent install into a Chinese-named folder, smoke test, uninstall |
 | License to AGPL-3.0, third-party list | Done, green on CI | `LICENSE` (official text), `docs/THIRD_PARTY.md`; binary components inside wheels not verified |
@@ -31,7 +31,7 @@ by decision (no spending on signing). Remaining items need a person on Windows o
 
 ## Test results
 - `.venv/bin/python -m pytest -q`: 132 passed (macOS, Python 3.9), including 19 in `tests/test_spend.py`.
-- `packaging/ui_check.py`: passes (first run, proxy, key, book reopen, name review, spend stop, finish with translated pages).
+- `packaging/ui_check.py`: passes (first run, key, book reopen, name review, spend stop, finish with translated pages).
 - `packaging/smoke_test.py` against the dev sidecar: passes.
 - Windows CI: green for `8d4fc13` (everything up to the spend guard). The earlier intermittent smoke failure was a newer PyMuPDF whose optional layout data files are missing from the bundle; fixed by pinning `pymupdf==1.26.5`.
 - No real provider was called at any point.

@@ -47,33 +47,20 @@ $("keyhelp").onclick = (e) => {
 };
 
 const zhSystem = /^zh(-CN|-Hans)?$/i.test(navigator.language || "");  // Anthropic is not reachable from mainland China
-function openKeyPanel(first) {
+function updateKeyPanel(first) {
   if (!provider && zhSystem) provider = "qwen";
   $("key-title").textContent = first ? T.keyTitleFirst : T.keyTitle;
   show("first-run-note", first);
-  show("btn-delkey", hasKey); show("btn-closekey", hasKey);
+  show("btn-delkey", hasKey);
   if (provider) $("provider").value = provider;
   updateKeyForm(); $("keymsg").textContent = "";
   $("keyhint").textContent = keyHint ? T.storedKey(keyHint) : "";
   show("keyhint", !!(hasKey && keyHint));
-  show("step-key", true);
-  if (!first) $("step-key").scrollIntoView();
 }
-$("btn-saveproxy").onclick = async () => {
-  const url = $("proxy").value.trim();
-  $("proxymsg").className = "msg";
-  let r;
-  if (bridge) r = await bridge.set_proxy(url);
-  else { try { r = Object.assign({ ok: true }, await api("/api/proxy", json("PUT", { url }))); } catch (e) { r = { ok: false, error: e.message }; } }
-  $("proxymsg").className = "msg" + (r.ok ? " done" : " err");
-  $("proxymsg").textContent = r.ok ? (r.proxy ? T.proxySaved(r.proxy) : T.proxyCleared) : (r.error || T.proxyFailed);
-  if (r.ok) $("proxy").value = "";
-  if (r.ok) $("proxy").placeholder = r.proxy || "http://127.0.0.1:7890";
-};
+function openKeyPanel(first) { updateKeyPanel(first); if (!first) $("step-key").scrollIntoView(); }
 $("btn-settings").onclick = () => openKeyPanel(false);
 $("btn-usingkey").onclick = () => openKeyPanel(!hasKey);
 $("btn-changekey").onclick = () => openKeyPanel(!hasKey);
-$("btn-closekey").onclick = () => show("step-key", false);
 
 $("btn-savekey").onclick = async () => {
   const p = $("provider").value, k = $("key").value.trim();
@@ -93,13 +80,14 @@ $("btn-savekey").onclick = async () => {
       return;
     }
     $("key").value = ""; hasKey = true; provider = p; keyHint = "…" + k.slice(-4);
-    show("step-key", false); updateUsing();
+    updateKeyPanel(false); updateUsing();
+    $("keymsg").className = "msg done"; $("keymsg").textContent = T.keySaved;
   } finally { $("btn-savekey").disabled = false; }
 };
 
 $("btn-delkey").onclick = async () => {
   if (bridge) await bridge.delete_key(); else await api("/api/key", { method: "DELETE" });
-  hasKey = false; keyHint = ""; openKeyPanel(true);
+  hasKey = false; keyHint = ""; updateKeyPanel(true);
 };
 
 function updateUsing() {
@@ -280,9 +268,7 @@ $("btn-reveal").onclick = () => { if (bridge && savedPath) bridge.reveal(savedPa
 (async function init() {
   bridge = await waitForBridge();
   try {
-    if (bridge) await bridge.use_stored_proxy();
     let cfg = await api("/api/config");
-    if (cfg.proxy) $("proxy").placeholder = cfg.proxy;
     if (!cfg.has_key && bridge) {
       const s = await bridge.has_key();
       if (s.has_key) { keyHint = s.hint || ""; await bridge.use_stored_key(); cfg = await api("/api/config"); }
@@ -291,7 +277,7 @@ $("btn-reveal").onclick = () => { if (bridge && savedPath) bridge.reveal(savedPa
     est = cfg.est_cny_per_page || {}; defaultLimit = cfg.default_spend_limit ?? 10;
     if (!$("limit").value) $("limit").value = String(defaultLimit);
   } catch (e) { $("upmsg").className = "msg err"; $("upmsg").textContent = T.cannotReach; return; }
-  if (hasKey) updateUsing(); else openKeyPanel(true);
+  updateKeyPanel(!hasKey); if (hasKey) updateUsing();
   try {  // reopen the newest book, if any
     const jobs = await api("/api/jobs");
     if (jobs.length) {

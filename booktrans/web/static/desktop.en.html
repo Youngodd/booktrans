@@ -34,7 +34,7 @@
     <p class="msg" id="upmsg"></p>
   </section>
 
-  <section class="step hidden" id="step-key">
+  <section class="step" id="step-key">
     <header><span class="no">§ 02</span><h2 id="key-title">API key</h2></header>
     <p class="note" id="first-run-note">Book text is sent to the provider you pick below, and nowhere else; the app has no server and no telemetry.
        You are responsible for having the right to translate the books you use.</p>
@@ -47,11 +47,6 @@
     </select>
     <p class="hint">Domestic and international Qwen keys are different; pick the site your key came from.</p>
     <p class="hint"><a href="#" id="keyhelp">How do I get a key?</a></p>
-    <label for="proxy">Proxy <span class="opt">(optional)</span></label>
-    <input type="text" id="proxy" autocomplete="off" spellcheck="false" placeholder="http://127.0.0.1:7890">
-    <p class="hint">Leave empty to use your system's proxy settings. Needed to reach Anthropic from mainland China.</p>
-    <div class="actions"><button class="secondary" id="btn-saveproxy">Save proxy</button></div>
-    <p class="msg" id="proxymsg"></p>
     <label for="key">API key</label>
     <p class="hint hidden" id="keyhint"></p>
     <input type="password" id="key" autocomplete="off" spellcheck="false" placeholder="sk-ant-…">
@@ -59,7 +54,6 @@
     <div class="actions">
       <button id="btn-savekey" class="solid">Save and test</button>
       <button class="secondary hidden" id="btn-delkey">Delete stored key</button>
-      <button class="secondary hidden" id="btn-closekey">Close</button>
     </div>
     <p class="msg err" id="keymsg"></p>
   </section>

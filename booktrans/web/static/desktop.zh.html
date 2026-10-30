@@ -34,7 +34,7 @@
     <p class="msg" id="upmsg"></p>
   </section>
 
-  <section class="step hidden" id="step-key">
+  <section class="step" id="step-key">
     <header><span class="no">§ 02</span><h2 id="key-title">API key</h2></header>
     <p class="note" id="first-run-note">书中文字只会发给下面选择的供应商，本应用没有服务器，也不收集数据；请确保你有权翻译所用的书。</p>
     <label for="provider">模型供应商</label>
@@ -46,11 +46,6 @@
     </select>
     <p class="hint">国内站与国际站的 key 不通用，请选择你申请 key 的站点。</p>
     <p class="hint"><a href="#" id="keyhelp">如何获取 key？</a></p>
-    <label for="proxy">代理 <span class="opt">（可留空）</span></label>
-    <input type="text" id="proxy" autocomplete="off" spellcheck="false" placeholder="http://127.0.0.1:7890">
-    <p class="hint">留空则使用系统代理设置；在中国大陆访问 Anthropic 通常需要代理。</p>
-    <div class="actions"><button class="secondary" id="btn-saveproxy">保存代理</button></div>
-    <p class="msg" id="proxymsg"></p>
     <label for="key">API key</label>
     <p class="hint hidden" id="keyhint"></p>
     <input type="password" id="key" autocomplete="off" spellcheck="false" placeholder="sk-ant-…">
@@ -58,7 +53,6 @@
     <div class="actions">
       <button id="btn-savekey" class="solid">保存并测试</button>
       <button class="secondary hidden" id="btn-delkey">删除已保存的 key</button>
-      <button class="secondary hidden" id="btn-closekey">关闭</button>
     </div>
     <p class="msg err" id="keymsg"></p>
   </section>

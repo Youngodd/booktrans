@@ -4,10 +4,10 @@ const T = {
   providers: { api: "Anthropic Claude", qwen: "Qwen (China)", "qwen-intl": "Qwen (international)", deepseek: "DeepSeek" },
   keyTitleFirst: "Add your API key", keyTitle: "API key",
   storedKey: (hint) => "Stored key: " + hint + ". Enter a new key and save to replace it; the old one stays until the new one passes.",
-  proxySaved: (p) => "Saved: " + p, proxyCleared: "Cleared. Using system settings.", proxyFailed: "Could not save",
+  keySaved: "Saved. The key works.",
   checking: "Checking the key…", enterKey: "Enter a key.", keyFailed: "Could not save the key.",
   keyRejected: "The provider rejected this key.",
-  providerUnreachable: "Could not reach the provider; check your network or proxy.",
+  providerUnreachable: "Could not reach the provider; check your network.",
   using: (name) => "Provider: " + name + ". Change it under Settings.",
   bookInfo: (name, n) => name + " — " + n + " pages",
   estimate: (n, cost, measured, over) => n + " pages ≈ ¥" + cost.toFixed(2) + " (rough estimate; " +

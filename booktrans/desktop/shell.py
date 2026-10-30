@@ -171,32 +171,6 @@ class Api:
         self._sidecar.http.delete("/api/key")  # the running session forgets it too
         return {"ok": True}
 
-    def get_proxy(self):
-        """The saved proxy as host:port (never with credentials)."""
-        return {"proxy": self._sidecar.http.get("/api/config").json().get("proxy", "")}
-
-    def use_stored_proxy(self):
-        import keyring
-        url = keyring.get_password(SERVICE, "proxy")
-        if url:
-            self._sidecar.http.put("/api/proxy", json={"url": url})
-        return self.get_proxy()
-
-    def set_proxy(self, url):
-        """Check the address, give it to the sidecar, and keep it (it may hold a password)."""
-        import keyring
-        r = self._sidecar.http.put("/api/proxy", json={"url": url})
-        if r.status_code != 200:
-            return {"ok": False, "error": r.json().get("detail", "")}
-        if url.strip():
-            keyring.set_password(SERVICE, "proxy", url.strip())
-        else:
-            try:
-                keyring.delete_password(SERVICE, "proxy")
-            except keyring.errors.PasswordDeleteError:
-                pass
-        return {"ok": True, "proxy": r.json()["proxy"]}
-
     def _push(self, provider, key):
         r = self._sidecar.http.put("/api/key", json={"api_key": key, "provider": provider})
         return {"ok": r.status_code == 200, "status": r.status_code,
@@ -248,12 +222,7 @@ def headless_check():
     assert side.http.get("/api/config").json()["has_key"]
     api.delete_key()
     assert api.has_key()["has_key"] is False
-    assert api.set_proxy("http://u:pw@127.0.0.1:7890") == {"ok": True, "proxy": "127.0.0.1:7890"}
-    assert not api.set_proxy("nonsense")["ok"]
-    side.http.put("/api/proxy", json={"url": ""})  # a fresh session: the sidecar has forgotten it...
-    assert api.use_stored_proxy() == {"proxy": "127.0.0.1:7890"}  # ...and the shell restores it
-    assert api.set_proxy("") == {"ok": True, "proxy": ""} and api.get_proxy() == {"proxy": ""}
-    print("SHELL OK: key and proxy stored, handed to the sidecar, deleted")
+    print("SHELL OK: key stored, handed to the sidecar, deleted")
     if "--hold" in sys.argv:  # CI: stay alive so the test can kill this process
         print("HOLDING", flush=True)
         time.sleep(600)
@@ -266,7 +235,6 @@ def main():
     import webview
     side = Sidecar().start()
     api = Api(side)
-    api.use_stored_proxy()
     api.use_stored_key()
     # TODO(M2): the page must send the token header; the prototype only opens it.
     api._window = webview.create_window("Book Translator", f"{side.base}/#token={side.token}",

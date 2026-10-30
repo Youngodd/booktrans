@@ -4,10 +4,10 @@ const T = {
   providers: { api: "Anthropic Claude", qwen: "通义千问（国内站）", "qwen-intl": "通义千问（国际站）", deepseek: "DeepSeek" },
   keyTitleFirst: "添加 API key", keyTitle: "API key",
   storedKey: (hint) => "已保存的 key：" + hint + "。输入新 key 并保存即可替换，旧 key 在验证通过前保持不变。",
-  proxySaved: (p) => "已保存：" + p, proxyCleared: "已清除，改用系统设置。", proxyFailed: "保存失败",
+  keySaved: "已保存，key 验证通过。",
   checking: "正在验证 key…", enterKey: "请输入 key。", keyFailed: "无法保存 key。",
   keyRejected: "供应商拒绝了这个 key，请检查后重试。",
-  providerUnreachable: "无法连接供应商，请检查网络或代理。",
+  providerUnreachable: "无法连接供应商，请检查网络。",
   using: (name) => "供应商：" + name + "。可在“设置”中更改。",
   bookInfo: (name, n) => name + " — 共 " + n + " 页",
   estimate: (n, cost, measured, over) => n + " 页 ≈ ¥" + cost.toFixed(2) + "（粗略估算，" +

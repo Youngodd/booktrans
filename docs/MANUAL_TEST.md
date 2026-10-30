@@ -2,7 +2,7 @@
 
 What CI cannot check: a person using the window, real providers, a clean machine. Run this before each
 release. CI already covers (do not repeat by hand): unit tests, the frozen app translating 2 pages with a fake
-backend, the key and proxy flow in the shell, the sidecar ending with the shell, silent install into a folder with
+backend, the key flow in the shell, the sidecar ending with the shell, silent install into a folder with
 Chinese characters, uninstall.
 
 Mark each line pass / fail and note the app version (the installer name, e.g. `BookTranslator-Setup-0.1.7.exe`)
@@ -22,20 +22,17 @@ Costs: real-provider steps use "Preview 3 pages" or a short page range, a few ce
 6. Machine without WebView2 runtime (Windows 10 older than 2018, or removed): the app should say something
    understandable, not crash silently. Record what happens.
 
-## B. First run, key, proxy
+## B. First run and key
 
-7. First run shows the upload block first and the key panel below it, with the privacy note.
+7. First run shows the upload block first and the key panel below it, with the privacy note. The key panel stays visible after a key is saved (there is no Close button).
 8. Language default: on a Chinese-language Windows the provider starts on Qwen (China); on an English one, Anthropic.
 9. "How do I get a key?" opens the right provider page in the default browser, for each of the four providers.
-10. Wrong key: "Save and test" says the provider rejected it; the key is not kept (close and reopen: first-run again).
-11. No network (disconnect): a different message from "rejected" (network or proxy).
+10. Wrong key: "Save and test" says the provider rejected it; the key is not kept (close and reopen: the first-run note shows again).
+11. No network (disconnect): a different message from "rejected" (network).
 12. Correct key: saved. Close and reopen the app: no key prompt, the provider shown is the saved one.
 13. Windows Credential Manager (Control Panel > Credential Manager > Windows Credentials) has an entry named
     `BookTranslator`; no file under `%APPDATA%\BookTranslator` contains the key (search the folder for part of it).
-14. Settings: delete the stored key: the entry disappears from Credential Manager and first-run shows again.
-15. Proxy: with a working proxy address (and the system proxy off), save it and test a key: works. Enter a wrong
-    address: the key test says it cannot reach the provider. Clear it: the system proxy settings apply again.
-    If the address has a password, it must not be shown anywhere in the window afterwards.
+14. Settings: delete the stored key: the entry disappears from Credential Manager and the first-run note shows again.
 
 ## C. Translating
 
