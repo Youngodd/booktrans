@@ -159,7 +159,7 @@ def create_app(data_dir=None, *, executor=None, backend_factory=jobs.default_bac
         return job
 
     def public(job):
-        keys = ("id", "filename", "state", "stage", "done", "total", "error", "pages_total",
+        keys = ("id", "filename", "state", "stage", "done", "total", "error", "error_code", "error_detail", "pages_total",
                 "range", "preview", "usage", "email_state", "glossary_state", "glossary_error",
                 "glossary_count", "auto_glossary", "spent_cny", "spend_limit", "est_rest_cny",
                 "partial")

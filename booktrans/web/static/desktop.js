@@ -205,12 +205,16 @@ $("btn-finish-partial").onclick = () => begin(!!job.preview, { only_cached: true
 $("btn-stop").onclick = async () => { try { render(await api("/api/jobs/" + job.id + "/cancel", { method: "POST" })); } catch (e) { $("decision-err").textContent = e.message; } };
 $("btn-cancel").onclick = async () => { $("btn-cancel").disabled = true; try { await api("/api/jobs/" + job.id + "/cancel", { method: "POST" }); } catch (e) {} };
 
+function failureText(j) {  // what happened and what to do, in this page's language, plus the short detail
+  const advice = T.errors[j.error_code];
+  return advice ? advice + (j.error_detail ? " (" + T.detail + j.error_detail + ")" : "") : (j.error || "");
+}
 function render(j) {
   job = Object.assign(job || {}, j);
   show("step-run", true);
   const active = j.state === "queued" || j.state === "running";
   $("bar").style.width = (j.state === "done" ? 100 : (j.total ? 100 * j.done / j.total : 0)) + "%";
-  $("runerr").textContent = j.state === "failed" ? j.error : "";
+  $("runerr").textContent = j.state === "failed" ? failureText(j) : "";
   $("stage").className = "msg" + (j.state === "done" ? " done" : "");
   const spent = j.spent_cny ? T.spent(j.spent_cny.toFixed(2)) : "";
   show("decision", j.state === "needs_decision");

@@ -84,13 +84,17 @@ async function start(preview) {
 $("btn-start").onclick = () => start(false);
 $("btn-preview").onclick = () => start(true);
 
+function failureText(j) {  // what happened and what to do, in this page's language, plus the short detail
+  const advice = T.errors[j.error_code];
+  return advice ? advice + (j.error_detail ? " (" + T.detail + j.error_detail + ")" : "") : (j.error || "");
+}
 function render(j) {
   job = Object.assign(job || {}, j);
   show("step-run", true);
   const active = j.state === "queued" || j.state === "running";
   const pct = j.total ? 100 * j.done / j.total : 0;
   $("bar").style.width = (j.state === "done" ? 100 : pct) + "%";
-  $("runerr").textContent = j.state === "failed" ? j.error : "";
+  $("runerr").textContent = j.state === "failed" ? failureText(j) : "";
   const label = T.stages[j.stage] || j.stage;
   $("stage").className = "msg" + (j.state === "done" ? " done" : "");
   $("stage").textContent = j.state === "done"

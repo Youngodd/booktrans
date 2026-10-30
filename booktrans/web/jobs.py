@@ -14,7 +14,7 @@ import sys
 import time
 from pathlib import Path
 
-from ..backends.base import BackendError
+from ..backends.base import AuthError, BackendError
 
 ID_RE = re.compile(r"^[A-Za-z0-9_-]{22}$")
 SAFE_NAME = re.compile(r"[^A-Za-z0-9._ -]")
@@ -115,21 +115,86 @@ def preview_range(pages, total):
 
 
 def _log_failure(e, api_key):
-    """Write the full traceback of an unexpected failure to stderr (the desktop app's log file),
-    with the API key blanked out. The job shows only a short generic message."""
+    """Write the full traceback of a failure to stderr (the desktop app's log file), with the API
+    key blanked out. The job shows a classified message and a short detail, never the traceback."""
     import traceback
     text = "".join(traceback.format_exception(type(e), e, e.__traceback__))
     sys.stderr.write("Job failed:\n" + (text.replace(api_key, "***") if api_key else text) + "\n")
     sys.stderr.flush()
 
 
-def _failure_text(e, api_key):
-    if not isinstance(e, (BackendError, ValueError)) and isinstance(e, Exception):
+# What the user can do about each kind of failure (the pages show a translated version, keyed by code).
+FAILURE_ADVICE = {
+    "auth": "The provider refused the request. Check the key, that the account has credit, and that it may use this model.",
+    "quota": "The account is out of credit or over its quota. Top it up, then press Continue.",
+    "rate_limit": "The provider is limiting requests. Wait a minute, then press Continue.",
+    "timeout": "The provider took too long to answer. Press Continue to retry.",
+    "network": "Could not reach the provider. Check your internet connection, then press Continue.",
+    "server": "The provider had a problem on its side. Try Continue again in a few minutes.",
+    "provider": "The provider returned an error. Press Continue to retry; if it repeats, the detail below says why.",
+    "disk": "The app could not write its files (disk full or no permission). Free some space, then press Continue.",
+    "memory": "The computer ran out of memory on this book. Close other apps, or translate a smaller page range.",
+    "input": "This book or one of the settings could not be used.",
+    "unknown": "An unexpected error stopped the translation. Press Continue to retry; the log has the full details.",
+}
+
+
+def _classify(e):
+    """A failure code (a key of FAILURE_ADVICE) from the exception and what caused it."""
+    import errno
+    chain = []
+    x = e
+    while x is not None and len(chain) < 6:
+        chain.append(x)
+        x = x.__cause__ or x.__context__
+    names = " ".join(type(c).__name__ for c in chain)
+    status = next((getattr(c, "status_code", None) for c in chain if isinstance(getattr(c, "status_code", None), int)), 0)
+    said = str(e).lower()
+    if isinstance(e, AuthError):
+        return "auth"
+    if any(w in said for w in ("credit balance", "insufficient", "arrearage", "quota", "billing")):
+        return "quota"
+    if status == 429 or "RateLimit" in names:
+        return "rate_limit"
+    if "Timeout" in names or "timed out" in said:
+        return "timeout"
+    if status >= 500 or "InternalServer" in names or "Overloaded" in names:
+        return "server"
+    if "Connect" in names or "gaierror" in names or "ProxyError" in names or "SSL" in names:
+        return "network"
+    if any(isinstance(c, MemoryError) for c in chain):
+        return "memory"
+    if any(isinstance(c, OSError) and c.errno in (errno.ENOSPC, errno.EACCES, errno.EPERM, errno.EROFS, errno.EDQUOT)
+           for c in chain):
+        return "disk"
+    if isinstance(e, BackendError):
+        return "provider"
+    if isinstance(e, ValueError):
+        return "input"
+    return "unknown"
+
+
+def failure_info(e, api_key):
+    """(code, detail, text) for a failed job. `detail` is short and safe to show: the message of
+    errors we raise ourselves, otherwise only the exception's type name (the traceback is in the log);
+    `text` is the same thing as one English sentence, for clients that do not translate."""
+    if isinstance(e, Exception):
         _log_failure(e, api_key)
-    msg = str(e).replace(api_key, "***") if api_key else str(e)
-    if not isinstance(e, (BackendError, ValueError)):
-        msg = "Something went wrong while translating this book."
-    return msg[:500]
+    code = _classify(e)
+    if isinstance(e, (BackendError, ValueError)):
+        detail = str(e)
+    elif isinstance(e, OSError) and e.strerror:
+        detail = e.strerror
+    else:
+        detail = type(e).__name__
+    if api_key:
+        detail = detail.replace(api_key, "***")
+    detail = detail[:400]
+    return code, detail, f"{FAILURE_ADVICE[code]} ({detail})"
+
+
+def _failure_text(e, api_key):
+    return failure_info(e, api_key)[2]
 
 
 def run_glossary_draft(root, job_id, api_key, backend_factory=default_backend, provider="api",
@@ -209,7 +274,8 @@ def run_job(root, job_id, api_key, backend_factory=default_backend, provider="ap
                     usage=translator.usage.as_dict() if translator else {})
     except BaseException as e:  # report every failure to the browser, never lose the job
         usage = translator.usage.as_dict() if translator else {}
-        store.write(job_id, state="failed", error=_failure_text(e, api_key), usage=usage,
+        code, detail, text = failure_info(e, api_key)
+        store.write(job_id, state="failed", error=text, error_code=code, error_detail=detail, usage=usage,
                     finished=time.time(), spent_cny=round(meter.spent, 4))
         if not isinstance(e, Exception):
             raise

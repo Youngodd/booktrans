@@ -291,7 +291,8 @@ def test_unexpected_failure_is_logged_with_the_key_blanked(make, text_pdf, capsy
     c.post(f"/api/jobs/{job}/start", json={})
     j = wait(c, job)
     err = capsys.readouterr().err
-    assert j["state"] == "failed" and j["error"] == "Something went wrong while translating this book."
+    assert j["state"] == "failed" and j["error_code"] == "unknown" and j["error_detail"] == "RuntimeError"
+    assert "unexpected error" in j["error"] and KEY not in json.dumps(j)
     assert "Job failed" in err and "boom with ***" in err and KEY not in err
 
 
@@ -417,3 +418,37 @@ def test_the_page_offers_a_way_to_the_key_after_a_failure_and_shows_only_a_hint(
     page = "".join((static / f).read_text(encoding="utf-8") for f in ("desktop.en.html", "desktop.js"))
     assert 'id="btn-changekey"' in page and 'show("btn-changekey", j.state === "failed")' in page
     assert "keyHint" in page and "k.slice(-4)" in page
+
+
+def _chained(outer, inner):
+    outer.__cause__ = inner
+    return outer
+
+
+@pytest.mark.parametrize("exc,code", [
+    (__import__("booktrans.backends.base", fromlist=["x"]).AuthError("bad key"), "auth"),
+    (__import__("booktrans.backends.base", fromlist=["x"]).BackendError(
+        "Anthropic API error: Your credit balance is too low"), "quota"),
+    (_chained(RuntimeError("x"), type("RateLimitError", (Exception,), {"status_code": 429})()), "rate_limit"),
+    (_chained(RuntimeError("x"), type("APITimeoutError", (Exception,), {})("Request timed out.")), "timeout"),
+    (_chained(RuntimeError("x"), type("APIConnectionError", (Exception,), {})("Connection error.")), "network"),
+    (_chained(RuntimeError("x"), type("InternalServerError", (Exception,), {"status_code": 529})()), "server"),
+    (OSError(28, "No space left on device"), "disk"),
+    (MemoryError(), "memory"),
+    (ValueError("Page range 90-99 is outside this book."), "input"),
+    (__import__("booktrans.backends.base", fromlist=["x"]).BackendError("The model returned no answer."), "provider"),
+    (KeyError("boom"), "unknown"),
+])
+def test_failures_are_classified_with_a_next_step(exc, code, capsys):
+    from booktrans.web import jobs
+    got, detail, text = jobs.failure_info(exc, KEY)
+    assert got == code and detail and jobs.FAILURE_ADVICE[code] in text
+    assert "Job failed" in capsys.readouterr().err
+
+
+def test_failure_detail_never_holds_the_key(capsys):
+    from booktrans.backends.base import BackendError
+    from booktrans.web import jobs
+    _, detail, text = jobs.failure_info(BackendError(f"API error: bad {KEY}"), KEY)
+    assert KEY not in detail + text and "***" in detail
+    assert KEY not in capsys.readouterr().err
