@@ -9,7 +9,8 @@ from pathlib import Path
 from typing import Optional
 
 from fastapi import Depends, FastAPI, File, Header, HTTPException, Request, UploadFile
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from ..backends.base import AuthError, BackendError
@@ -21,6 +22,7 @@ from .. import spend
 from .jobs import JobStore
 
 STATIC = Path(__file__).parent / "static"
+LANGS = ("en", "zh")  # one page per language; the switch in the header links to the other
 EXTENSIONS = (".pdf", ".epub", ".txt")
 EST_COST_PER_PAGE = 0.017  # USD on the Anthropic API, measured on a scanned history book
 ACTIVE = ("queued", "running")
@@ -249,10 +251,28 @@ def create_app(data_dir=None, *, executor=None, backend_factory=jobs.default_bac
     def healthz():
         return {"ok": True}
 
+    def page_in(lang):
+        """The page in one language. Visiting it makes it the language `/` redirects to next time."""
+        def page():
+            r = FileResponse(STATIC / f"{'desktop' if desktop else 'web'}.{lang}.html",
+                             headers={"Cache-Control": "no-store"})
+            r.set_cookie("lang", lang, max_age=365 * 24 * 3600, samesite="lax")
+            return r
+        return page
+
+    for lang in LANGS:
+        app.get("/" + lang)(page_in(lang))
+
     @app.get("/")
-    def index():
-        page = "desktop.html" if desktop else "index.html"
-        return FileResponse(STATIC / page, headers={"Cache-Control": "no-store"})
+    def index(request: Request):
+        """Send the visitor to a language page: the one they chose last, else the browser's language.
+        The redirect keeps the URL fragment, which is where the desktop shell puts its token."""
+        lang = request.cookies.get("lang")
+        if lang not in LANGS:
+            lang = "zh" if request.headers.get("accept-language", "").lower().startswith("zh") else "en"
+        return RedirectResponse("/" + lang, status_code=302, headers={"Cache-Control": "no-store"})
+
+    app.mount("/static", StaticFiles(directory=STATIC), name="static")
 
     @app.post("/api/jobs")
     async def upload(file: UploadFile = File(...), viewer: str = Depends(who)):

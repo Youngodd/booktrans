@@ -1,0 +1,144 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Book Translator</title>
+<link rel="stylesheet" href="/static/ui.css">
+</head>
+<body>
+<header class="masthead">
+  <div class="wrap">
+    <span class="brand">Book Translator</span>
+    <nav>
+      <a href="#step-upload"><b>01</b>Translate</a>
+      <button id="btn-settings"><b>02</b> Settings</button>
+      <a href="#about"><b>03</b>About</a>
+      <a class="lang" id="lang-switch" href="/zh" lang="zh-CN" hreflang="zh-CN">中文</a>
+    </nav>
+  </div>
+</header>
+
+<main class="wrap">
+  <section class="hero">
+    <span class="label">Bilingual books</span>
+    <h1>Every English page, followed by its <em>Chinese</em> translation.</h1>
+    <p class="lead">Your book is translated on this computer. Only the text goes to the model provider you choose, with your own API key.</p>
+  </section>
+
+  <section class="step" id="step-upload">
+    <header><span class="no">§ 01</span><h2>Choose a book</h2></header>
+    <input type="file" id="file" accept=".pdf,.epub,.txt">
+    <p class="hint">PDF / EPUB / TXT</p>
+    <div class="bar hidden" id="upbar"><div></div></div>
+    <p class="msg" id="upmsg"></p>
+  </section>
+
+  <section class="step hidden" id="step-key">
+    <header><span class="no">§ 02</span><h2 id="key-title">API key</h2></header>
+    <p class="note" id="first-run-note">Book text is sent to the provider you pick below, and nowhere else; the app has no server and no telemetry.
+       You are responsible for having the right to translate the books you use.</p>
+    <label for="provider">Model provider</label>
+    <select id="provider">
+      <option value="api">Anthropic Claude</option>
+      <option value="qwen">Qwen (Alibaba Cloud, China)</option>
+      <option value="qwen-intl">Qwen (Alibaba Cloud, international)</option>
+      <option value="deepseek">DeepSeek (no scanned pages)</option>
+    </select>
+    <p class="hint">Domestic and international Qwen keys are different; pick the site your key came from.</p>
+    <p class="hint"><a href="#" id="keyhelp">How do I get a key?</a></p>
+    <label for="proxy">Proxy <span class="opt">(optional)</span></label>
+    <input type="text" id="proxy" autocomplete="off" spellcheck="false" placeholder="http://127.0.0.1:7890">
+    <p class="hint">Leave empty to use your system's proxy settings. Needed to reach Anthropic from mainland China.</p>
+    <div class="actions"><button class="secondary" id="btn-saveproxy">Save proxy</button></div>
+    <p class="msg" id="proxymsg"></p>
+    <label for="key">API key</label>
+    <p class="hint hidden" id="keyhint"></p>
+    <input type="password" id="key" autocomplete="off" spellcheck="false" placeholder="sk-ant-…">
+    <p class="hint">Checked with the provider, then stored in your system's credential store (Windows Credential Manager); never written to a file or logged.</p>
+    <div class="actions">
+      <button id="btn-savekey" class="solid">Save and test</button>
+      <button class="secondary hidden" id="btn-delkey">Delete stored key</button>
+      <button class="secondary hidden" id="btn-closekey">Close</button>
+    </div>
+    <p class="msg err" id="keymsg"></p>
+  </section>
+
+  <section class="step hidden" id="step-setup">
+    <header><span class="no">§ 03</span><h2>Translation</h2></header>
+    <p id="bookinfo"></p>
+    <p class="hint"><span id="using"></span> <button class="secondary" id="btn-usingkey" type="button">Change key / provider</button></p>
+    <label for="pages">Page range <span class="opt">(optional)</span></label>
+    <input type="text" id="pages" placeholder="e.g. 1-20">
+    <label class="check"><input type="checkbox" id="ocr">
+      <span>Read pages that have no text layer with vision OCR (extra cost).</span></label>
+    <label class="check"><input type="checkbox" id="review">
+      <span>Review the names before translating, so each name has one fixed rendering.</span></label>
+    <p class="hint" id="estimate"></p>
+    <label for="limit">Spend limit for this book (¥)</label>
+    <input type="text" id="limit" inputmode="decimal" autocomplete="off" placeholder="10">
+    <p class="hint">Translation stops and asks you when this is reached; the pages already translated are kept. 0 means no limit. Costs are estimates.</p>
+    <label class="check"><input type="checkbox" id="rights">
+      <span>I confirm I have the right to translate this book and take responsibility for it.</span></label>
+    <div class="actions">
+      <button id="btn-start">Translate</button>
+      <button class="secondary" id="btn-preview">Preview 3 pages</button>
+    </div>
+    <p class="msg err" id="startmsg"></p>
+  </section>
+
+  <section class="step hidden" id="step-names">
+    <header><span class="no">§ 03b</span><h2>Names</h2></header>
+    <p class="msg" id="namesmsg"></p>
+    <div class="names-box"><table class="names" id="names"></table></div>
+    <div class="actions">
+      <button id="btn-names-go" class="solid hidden">Use these names and translate</button>
+      <button class="secondary hidden" id="btn-names-skip">Skip</button>
+    </div>
+  </section>
+
+  <section class="step hidden" id="step-run">
+    <header><span class="no">§ 04</span><h2>Progress</h2></header>
+    <div class="bar"><div id="bar"></div></div>
+    <p class="msg" id="stage"></p>
+    <p class="msg err" id="runerr"></p>
+    <div id="decision" class="hidden">
+      <p class="msg" id="decision-text"></p>
+      <label for="newlimit">New limit (¥, 0 = no limit)</label>
+      <input type="text" id="newlimit" inputmode="decimal" autocomplete="off">
+      <div class="actions">
+        <button class="solid" id="btn-raise">Raise the limit and continue</button>
+        <button class="secondary" id="btn-finish-partial">Finish with the translated pages</button>
+        <button class="secondary" id="btn-stop">Stop for now</button>
+      </div>
+      <p class="msg err" id="decision-err"></p>
+    </div>
+    <div class="actions">
+      <button class="secondary hidden" id="btn-cancel">Cancel</button>
+      <button class="secondary hidden" id="btn-continue">Continue</button>
+      <button class="secondary hidden" id="btn-changekey">Change API key</button>
+      <button class="secondary hidden" id="btn-save">Save PDF</button>
+      <button class="secondary hidden" id="btn-reveal">Show in folder</button>
+      <button class="secondary hidden" id="btn-again">Change settings</button>
+      <button class="secondary hidden" id="btn-delete">Delete this book's files</button>
+    </div>
+    <p class="msg" id="savemsg"></p>
+  </section>
+</main>
+
+<footer>
+  <div class="wrap">
+    <div class="cols">
+      <div id="about"><h3>About</h3>
+        <p>Book Translator, free software under the GNU AGPL-3.0. Source code: <a href="https://github.com/Youngodd/booktrans" target="_blank" rel="noreferrer">github.com/Youngodd/booktrans</a>.
+        It bundles PyMuPDF (AGPL, Artifex).</p></div>
+      <div><h3>Good to know</h3>
+        <p>Cost is billed to your own key. Translation quality can vary; check important pages. Closing the app pauses a running book; open it again and press Continue.</p></div>
+    </div>
+  </div>
+</footer>
+
+<script src="/static/desktop.en.js"></script>
+<script src="/static/desktop.js"></script>
+</body>
+</html>

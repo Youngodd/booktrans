@@ -1,5 +1,6 @@
 import json
 import logging
+import re
 import time
 from concurrent.futures import ThreadPoolExecutor
 
@@ -139,17 +140,31 @@ def test_hosted_app_has_no_desktop_routes(tmp_path):
     assert c.get("/api/config").json().get("desktop") is False
 
 
+def whole_page(client, lang):
+    """The page and the scripts it loads: the checks below are about everything the window runs."""
+    page = client.get("/" + lang).text
+    return page + "".join(client.get(src).text for src in re.findall(r'src="(/static/[^"]+)"', page))
+
+
 def test_desktop_serves_its_own_page_and_hosted_keeps_the_old_one(make, tmp_path):
-    page = make().get("/").text
-    assert "X-Booktrans-Token" in page and "AGPL" in page
-    hosted = TestClient(create_app(tmp_path / "h", executor=ThreadPoolExecutor(1))).get("/").text
-    assert "X-Booktrans-Token" not in hosted and "Book Translator" in hosted
+    c = make()
+    page = whole_page(c, "en")
+    assert "X-Booktrans-Token" in page and "AGPL" in page and "AGPL" in whole_page(c, "zh")
+    hosted = TestClient(create_app(tmp_path / "h", executor=ThreadPoolExecutor(1)))
+    assert "X-Booktrans-Token" not in whole_page(hosted, "en") and "Book Translator" in hosted.get("/en").text
 
 
 def test_page_never_reads_or_stores_the_key(make):
-    page = make().get("/").text
-    assert "localStorage" not in page and "sessionStorage" not in page
-    assert "api_key: $" not in page  # keys travel via the shell or PUT /api/key only
+    for lang in ("en", "zh"):
+        page = whole_page(make(), lang)
+        assert "localStorage" not in page and "sessionStorage" not in page
+        assert "api_key: $" not in page  # keys travel via the shell or PUT /api/key only
+
+
+def test_language_switch_hands_the_token_to_the_other_page(make):
+    for lang in ("en", "zh"):
+        js = whole_page(make(), lang)
+        assert 'href += token ? "#token="' in js  # the token lives in page memory only, so the link must carry it
 
 
 def test_job_list_is_newest_first_and_needs_the_token(make, text_pdf):
@@ -430,6 +445,7 @@ def test_a_keyring_failure_is_reported_not_raised(make, mem_keyring, monkeypatch
 
 def test_the_page_offers_a_way_to_the_key_after_a_failure_and_shows_only_a_hint():
     from pathlib import Path
-    page = (Path(__file__).parent.parent / "booktrans/web/static/desktop.html").read_text(encoding="utf-8")
+    static = Path(__file__).parent.parent / "booktrans/web/static"
+    page = "".join((static / f).read_text(encoding="utf-8") for f in ("desktop.en.html", "desktop.js"))
     assert 'id="btn-changekey"' in page and 'show("btn-changekey", j.state === "failed")' in page
     assert "keyHint" in page and "k.slice(-4)" in page

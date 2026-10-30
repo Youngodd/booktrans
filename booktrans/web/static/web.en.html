@@ -1,0 +1,102 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Book Translator</title>
+<link rel="stylesheet" href="/static/ui.css">
+</head>
+<body>
+<header class="masthead">
+  <div class="wrap">
+    <span class="brand">Book Translator</span>
+    <nav>
+      <a href="#step-upload"><b>01</b>Translate</a>
+      <a href="#how"><b>02</b>How it works</a>
+      <a href="#privacy"><b>03</b>Privacy</a>
+      <a class="lang" id="lang-switch" href="/zh" lang="zh-CN" hreflang="zh-CN">中文</a>
+    </nav>
+  </div>
+</header>
+
+<main class="wrap">
+  <section class="hero">
+    <span class="label">Bilingual books</span>
+    <h1>Every English page, followed by its <em>Chinese</em> translation.</h1>
+    <p class="lead">Upload a book, bring your own Anthropic API key, and receive one PDF that keeps the original layout —
+       paragraphs, tables, figures and all.</p>
+    <dl class="facts">
+      <div><dt>Formats</dt><dd>PDF · EPUB · TXT</dd></div>
+      <div><dt>Output</dt><dd>Bilingual PDF</dd></div>
+      <div><dt>Your key</dt><dd>Memory only, never stored</dd></div>
+      <div><dt>Files</dt><dd>Deleted after 24 h</dd></div>
+    </dl>
+  </section>
+
+  <section class="step" id="step-upload">
+    <header><span class="no">§ 01</span><h2>Upload</h2></header>
+    <input type="file" id="file" accept=".pdf,.epub,.txt">
+    <p class="hint">PDF / EPUB / TXT, ≤ <span id="maxmb">60</span> MB</p>
+    <div class="bar hidden" id="upbar"><div></div></div>
+    <p class="msg" id="upmsg"></p>
+  </section>
+
+  <section class="step hidden" id="step-setup">
+    <header><span class="no">§ 02</span><h2>Settings</h2></header>
+    <p id="bookinfo"></p>
+    <p class="msg err hidden" id="insecure">This page is not using HTTPS, so your key would travel unencrypted. Do not enter a real key here.</p>
+    <label for="provider">Model provider</label>
+    <select id="provider">
+      <option value="api">Anthropic Claude</option>
+      <option value="qwen">Qwen (Alibaba Cloud, China)</option>
+      <option value="qwen-intl">Qwen (Alibaba Cloud, international)</option>
+      <option value="deepseek">DeepSeek (no scanned pages)</option>
+    </select>
+    <label for="key">API key</label>
+    <input type="password" id="key" autocomplete="off" spellcheck="false" placeholder="sk-ant-…">
+    <p class="hint">Used only for this job, kept in memory, never saved or logged.</p>
+    <label for="pages">Page range <span class="opt">(optional)</span></label>
+    <input type="text" id="pages" placeholder="e.g. 1-20">
+    <label class="check"><input type="checkbox" id="ocr">
+      <span>Read pages that have no text layer with vision OCR (extra cost).</span></label>
+    <p class="hint" id="estimate"></p>
+    <label class="check"><input type="checkbox" id="rights">
+      <span>I confirm I have the right to translate this book and take responsibility for it.</span></label>
+    <div class="actions">
+      <button id="btn-start">Translate</button>
+      <button class="secondary" id="btn-preview">Preview 3 pages</button>
+    </div>
+    <p class="msg err" id="startmsg"></p>
+  </section>
+
+  <section class="step hidden" id="step-run">
+    <header><span class="no">§ 03</span><h2>Progress</h2></header>
+    <div class="bar"><div id="bar"></div></div>
+    <p class="msg" id="stage"></p>
+    <p class="msg err" id="runerr"></p>
+    <div class="actions">
+      <a class="btn hidden" id="download" href="#">Download PDF</a>
+      <button class="secondary hidden" id="btn-again">Run again</button>
+      <button class="secondary hidden" id="btn-delete">Delete my files</button>
+    </div>
+  </section>
+</main>
+
+<footer>
+  <div class="wrap">
+    <div class="cols">
+      <div id="how"><h3>How it works</h3>
+        <p>The book is read page by page. Paragraphs, table cells and figure labels are translated; lines, curves and symbols are kept.</p></div>
+      <div id="privacy"><h3>Privacy</h3>
+        <p>Your API key lives in memory for one job only. Uploads and results are deleted automatically after 24 hours, or when you delete them.</p></div>
+      <div><h3>Good to know</h3>
+        <p>Cost is billed to your own key, roughly a few cents per page. Translation quality can vary; check important pages.</p></div>
+    </div>
+    <p class="colophon">Headings in Newsreader, text in Inter, where installed.</p>
+  </div>
+</footer>
+
+<script src="/static/web.en.js"></script>
+<script src="/static/web.js"></script>
+</body>
+</html>

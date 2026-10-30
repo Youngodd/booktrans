@@ -1,0 +1,101 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>双语书翻译</title>
+<link rel="stylesheet" href="/static/ui.css">
+</head>
+<body>
+<header class="masthead">
+  <div class="wrap">
+    <span class="brand">双语书翻译</span>
+    <nav>
+      <a href="#step-upload"><b>01</b>翻译</a>
+      <a href="#how"><b>02</b>工作原理</a>
+      <a href="#privacy"><b>03</b>隐私</a>
+      <a class="lang" id="lang-switch" href="/en" lang="en" hreflang="en">English</a>
+    </nav>
+  </div>
+</header>
+
+<main class="wrap">
+  <section class="hero">
+    <span class="label">双语对照</span>
+    <h1>每一页英文，后面紧跟对应的<em>中文</em>页。</h1>
+    <p class="lead">上传一本书，使用你自己的 API key，得到一份保留原版面的双语 PDF，段落、表格、插图都在。</p>
+    <dl class="facts">
+      <div><dt>格式</dt><dd>PDF · EPUB · TXT</dd></div>
+      <div><dt>输出</dt><dd>双语 PDF</dd></div>
+      <div><dt>你的 key</dt><dd>只存于内存，不会保存</dd></div>
+      <div><dt>文件</dt><dd>24 小时后删除</dd></div>
+    </dl>
+  </section>
+
+  <section class="step" id="step-upload">
+    <header><span class="no">§ 01</span><h2>上传</h2></header>
+    <input type="file" id="file" accept=".pdf,.epub,.txt">
+    <p class="hint">PDF / EPUB / TXT，不超过 <span id="maxmb">60</span> MB</p>
+    <div class="bar hidden" id="upbar"><div></div></div>
+    <p class="msg" id="upmsg"></p>
+  </section>
+
+  <section class="step hidden" id="step-setup">
+    <header><span class="no">§ 02</span><h2>设置</h2></header>
+    <p id="bookinfo"></p>
+    <p class="msg err hidden" id="insecure">本页未使用 HTTPS，你的 key 会以明文传输，请勿在此输入真实 key。</p>
+    <label for="provider">模型供应商</label>
+    <select id="provider">
+      <option value="api">Anthropic Claude</option>
+      <option value="qwen">通义千问（阿里云中国站）</option>
+      <option value="qwen-intl">通义千问（阿里云国际站）</option>
+      <option value="deepseek">DeepSeek（不支持扫描页）</option>
+    </select>
+    <label for="key">API key</label>
+    <input type="password" id="key" autocomplete="off" spellcheck="false" placeholder="sk-ant-…">
+    <p class="hint">仅用于本次任务，只保存在内存中，不会存储或记录。</p>
+    <label for="pages">页码范围 <span class="opt">（可留空）</span></label>
+    <input type="text" id="pages" placeholder="例如 1-20">
+    <label class="check"><input type="checkbox" id="ocr">
+      <span>扫描页没有文字层时用视觉模型识别（会多花一些费用）。</span></label>
+    <p class="hint" id="estimate"></p>
+    <label class="check"><input type="checkbox" id="rights">
+      <span>我确认我有权翻译这本书，并对其使用负责。</span></label>
+    <div class="actions">
+      <button id="btn-start">开始翻译</button>
+      <button class="secondary" id="btn-preview">试译前 3 页</button>
+    </div>
+    <p class="msg err" id="startmsg"></p>
+  </section>
+
+  <section class="step hidden" id="step-run">
+    <header><span class="no">§ 03</span><h2>进度</h2></header>
+    <div class="bar"><div id="bar"></div></div>
+    <p class="msg" id="stage"></p>
+    <p class="msg err" id="runerr"></p>
+    <div class="actions">
+      <a class="btn hidden" id="download" href="#">下载 PDF</a>
+      <button class="secondary hidden" id="btn-again">再来一次</button>
+      <button class="secondary hidden" id="btn-delete">删除我的文件</button>
+    </div>
+  </section>
+</main>
+
+<footer>
+  <div class="wrap">
+    <div class="cols">
+      <div id="how"><h3>工作原理</h3>
+        <p>逐页处理：翻译段落、表格单元格和图中文字，保留线条、曲线和符号。</p></div>
+      <div id="privacy"><h3>隐私</h3>
+        <p>API key 只在任务期间存于内存；上传的文件和结果会在 24 小时后自动删除，你也可以随时手动删除。</p></div>
+      <div><h3>须知</h3>
+        <p>费用由你的 key 承担，大约每页几美分。翻译质量可能有差异，重要内容请自行核对。</p></div>
+    </div>
+    <p class="colophon">排版：标题用衬线体，正文用无衬线体。</p>
+  </div>
+</footer>
+
+<script src="/static/web.zh.js"></script>
+<script src="/static/web.js"></script>
+</body>
+</html>

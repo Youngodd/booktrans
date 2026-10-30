@@ -81,7 +81,7 @@ def run(window, side):
         book = work / "化学之树.pdf"
         make_book(book)
         side.http.post("/api/jobs", files={"file": (book.name, book.read_bytes())})
-        window.load_url(f"{side.base}/?reload=1#token={side.token}")
+        window.load_url(f"{side.base}/en?reload=1#token={side.token}")
         until(window, "document.getElementById('bookinfo').textContent.includes('化学之树.pdf')")
         # the review step: tick it, translate, accept the names
         window.evaluate_js("document.getElementById('limit').value = '1.5'")  # the fake backend costs ¥1 a call
@@ -110,7 +110,7 @@ def run(window, side):
 def main():
     side = shell.Sidecar().start()
     api = shell.Api(side)
-    window = webview.create_window("ui check", f"{side.base}/#token={side.token}", js_api=api)
+    window = webview.create_window("ui check", f"{side.base}/en#token={side.token}", js_api=api)  # the checks read English text
     api._window = window
     threading.Thread(target=run, args=(window, side), daemon=True).start()
     try:

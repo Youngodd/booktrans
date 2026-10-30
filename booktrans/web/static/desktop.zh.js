@@ -1,0 +1,30 @@
+const T = {
+  stages: { scan: "分析版面", ocr: "识别扫描页", glossary: "整理译名",
+            translate: "翻译中", render: "生成页面", "": "排队中" },
+  providers: { api: "Anthropic Claude", qwen: "通义千问（国内站）", "qwen-intl": "通义千问（国际站）", deepseek: "DeepSeek" },
+  keyTitleFirst: "添加 API key", keyTitle: "API key",
+  storedKey: (hint) => "已保存的 key：" + hint + "。输入新 key 并保存即可替换，旧 key 在验证通过前保持不变。",
+  proxySaved: (p) => "已保存：" + p, proxyCleared: "已清除，改用系统设置。", proxyFailed: "保存失败",
+  checking: "正在验证 key…", enterKey: "请输入 key。", keyFailed: "无法保存 key。",
+  keyRejected: "供应商拒绝了这个 key，请检查后重试。",
+  providerUnreachable: "无法连接供应商，请检查网络或代理。",
+  using: (name) => "供应商：" + name + "。可在“设置”中更改。",
+  bookInfo: (name, n) => name + " — 共 " + n + " 页",
+  estimate: (n, cost, measured, over) => n + " 页 ≈ ¥" + cost.toFixed(2) + "（粗略估算，" +
+    (measured ? "按一本书的实测" : "费率未核实") + "；按你的 key 计费）" +
+    (over ? "。超过上限，会中途暂停。" : ""),
+  uploadFailed: "上传失败", readFailed: "无法读取这个文件",
+  namesCollecting: "正在整理译名…",
+  namesIntro: "改一改不满意的译名，留空则不固定。", namesNone: "没有需要固定的译名。",
+  tickBox: "请先勾选确认框。", limitNumber: "费用上限请输入数字。",
+  raiseErr: (spent) => "请输入大于已花费 ¥" + spent + " 的数字，或 0。",
+  spent: (v) => "  ·  已花费 ¥" + v,
+  decision: (spent, limit, done, total, rest) => "已达到费用上限：已花费 ¥" + spent + "，上限 ¥" + limit + "。已翻译并保存 " +
+    done + "/" + total + " 页" + (rest ? "；翻完全书约还需 ¥" + rest + "（估算）" : "") + "。请选择：",
+  done: "完成", donePartial: "完成（仅已翻译的页）", donePreview: "试译完成",
+  pausedLimit: "已在费用上限处暂停",
+  failed: "失败。进度已保存，点“继续”即可。",
+  paused: "已暂停。进度已保存，点“继续”接着翻译。",
+  savedTo: (path) => "已保存：" + path,
+  cannotReach: "无法连接本地服务。",
+};

@@ -1,0 +1,30 @@
+const T = {
+  stages: { scan: "Analysing layout", ocr: "Reading scanned pages", glossary: "Collecting names",
+            translate: "Translating", render: "Building pages", "": "Starting" },
+  providers: { api: "Anthropic Claude", qwen: "Qwen (China)", "qwen-intl": "Qwen (international)", deepseek: "DeepSeek" },
+  keyTitleFirst: "Add your API key", keyTitle: "API key",
+  storedKey: (hint) => "Stored key: " + hint + ". Enter a new key and save to replace it; the old one stays until the new one passes.",
+  proxySaved: (p) => "Saved: " + p, proxyCleared: "Cleared. Using system settings.", proxyFailed: "Could not save",
+  checking: "Checking the key…", enterKey: "Enter a key.", keyFailed: "Could not save the key.",
+  keyRejected: "The provider rejected this key.",
+  providerUnreachable: "Could not reach the provider; check your network or proxy.",
+  using: (name) => "Provider: " + name + ". Change it under Settings.",
+  bookInfo: (name, n) => name + " — " + n + " pages",
+  estimate: (n, cost, measured, over) => n + " pages ≈ ¥" + cost.toFixed(2) + " (rough estimate; " +
+    (measured ? "measured on one book" : "rate not verified") + "; billed to your key)" +
+    (over ? ". Above your limit, so it will pause." : ""),
+  uploadFailed: "Upload failed", readFailed: "Could not read the file",
+  namesCollecting: "Collecting names…",
+  namesIntro: "Edit any rendering you dislike; empty means not fixed.", namesNone: "No names to fix.",
+  tickBox: "Please tick the confirmation box.", limitNumber: "Enter a number for the spend limit.",
+  raiseErr: (spent) => "Enter a number above what is spent (¥" + spent + "), or 0.",
+  spent: (v) => "  ·  spent ¥" + v,
+  decision: (spent, limit, done, total, rest) => "Spend limit reached: spent ¥" + spent + " of ¥" + limit + ". " +
+    done + "/" + total + " pages translated and saved" + (rest ? "; about ¥" + rest + " more to finish (estimate)" : "") + ". Choose:",
+  done: "Done", donePartial: "Done, translated pages only", donePreview: "Preview ready",
+  pausedLimit: "Paused at the spend limit",
+  failed: "Failed. Progress is saved, press Continue.",
+  paused: "Paused. Progress is saved, press Continue to carry on.",
+  savedTo: (path) => "Saved: " + path,
+  cannotReach: "Cannot reach the local service.",
+};

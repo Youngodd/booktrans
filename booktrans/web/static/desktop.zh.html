@@ -1,0 +1,143 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>双语书翻译</title>
+<link rel="stylesheet" href="/static/ui.css">
+</head>
+<body>
+<header class="masthead">
+  <div class="wrap">
+    <span class="brand">双语书翻译</span>
+    <nav>
+      <a href="#step-upload"><b>01</b>翻译</a>
+      <button id="btn-settings"><b>02</b> 设置</button>
+      <a href="#about"><b>03</b>关于</a>
+      <a class="lang" id="lang-switch" href="/en" lang="en" hreflang="en">English</a>
+    </nav>
+  </div>
+</header>
+
+<main class="wrap">
+  <section class="hero">
+    <span class="label">双语对照</span>
+    <h1>每一页英文，后面紧跟对应的<em>中文</em>页。</h1>
+    <p class="lead">书在本机处理，只有文字会发给你选择的模型供应商，并使用你自己的 API key。</p>
+  </section>
+
+  <section class="step" id="step-upload">
+    <header><span class="no">§ 01</span><h2>选择书</h2></header>
+    <input type="file" id="file" accept=".pdf,.epub,.txt">
+    <p class="hint">PDF / EPUB / TXT</p>
+    <div class="bar hidden" id="upbar"><div></div></div>
+    <p class="msg" id="upmsg"></p>
+  </section>
+
+  <section class="step hidden" id="step-key">
+    <header><span class="no">§ 02</span><h2 id="key-title">API key</h2></header>
+    <p class="note" id="first-run-note">书中文字只会发给下面选择的供应商，本应用没有服务器，也不收集数据；请确保你有权翻译所用的书。</p>
+    <label for="provider">模型供应商</label>
+    <select id="provider">
+      <option value="api">Anthropic Claude</option>
+      <option value="qwen">通义千问（阿里云中国站）</option>
+      <option value="qwen-intl">通义千问（阿里云国际站）</option>
+      <option value="deepseek">DeepSeek（不支持扫描页）</option>
+    </select>
+    <p class="hint">国内站与国际站的 key 不通用，请选择你申请 key 的站点。</p>
+    <p class="hint"><a href="#" id="keyhelp">如何获取 key？</a></p>
+    <label for="proxy">代理 <span class="opt">（可留空）</span></label>
+    <input type="text" id="proxy" autocomplete="off" spellcheck="false" placeholder="http://127.0.0.1:7890">
+    <p class="hint">留空则使用系统代理设置；在中国大陆访问 Anthropic 通常需要代理。</p>
+    <div class="actions"><button class="secondary" id="btn-saveproxy">保存代理</button></div>
+    <p class="msg" id="proxymsg"></p>
+    <label for="key">API key</label>
+    <p class="hint hidden" id="keyhint"></p>
+    <input type="password" id="key" autocomplete="off" spellcheck="false" placeholder="sk-ant-…">
+    <p class="hint">验证通过后保存在系统凭据库（Windows 凭据管理器），不会写入文件或日志。</p>
+    <div class="actions">
+      <button id="btn-savekey" class="solid">保存并测试</button>
+      <button class="secondary hidden" id="btn-delkey">删除已保存的 key</button>
+      <button class="secondary hidden" id="btn-closekey">关闭</button>
+    </div>
+    <p class="msg err" id="keymsg"></p>
+  </section>
+
+  <section class="step hidden" id="step-setup">
+    <header><span class="no">§ 03</span><h2>翻译设置</h2></header>
+    <p id="bookinfo"></p>
+    <p class="hint"><span id="using"></span> <button class="secondary" id="btn-usingkey" type="button">更换 key 或供应商</button></p>
+    <label for="pages">页码范围 <span class="opt">（可留空）</span></label>
+    <input type="text" id="pages" placeholder="例如 1-20">
+    <label class="check"><input type="checkbox" id="ocr">
+      <span>扫描页没有文字层时用视觉模型识别（会多花一些费用）。</span></label>
+    <label class="check"><input type="checkbox" id="review">
+      <span>翻译前先核对人名、地名译法，让每个名字只有一种译法。</span></label>
+    <p class="hint" id="estimate"></p>
+    <label for="limit">本书费用上限（¥）</label>
+    <input type="text" id="limit" inputmode="decimal" autocomplete="off" placeholder="10">
+    <p class="hint">达到上限会暂停并询问，已翻译的页面不会丢失；0 表示不限；费用为估算值。</p>
+    <label class="check"><input type="checkbox" id="rights">
+      <span>我确认我有权翻译这本书，并对其使用负责。</span></label>
+    <div class="actions">
+      <button id="btn-start">开始翻译</button>
+      <button class="secondary" id="btn-preview">试译前 3 页</button>
+    </div>
+    <p class="msg err" id="startmsg"></p>
+  </section>
+
+  <section class="step hidden" id="step-names">
+    <header><span class="no">§ 03b</span><h2>译名核对</h2></header>
+    <p class="msg" id="namesmsg"></p>
+    <div class="names-box"><table class="names" id="names"></table></div>
+    <div class="actions">
+      <button id="btn-names-go" class="solid hidden">使用这些译名并翻译</button>
+      <button class="secondary hidden" id="btn-names-skip">跳过</button>
+    </div>
+  </section>
+
+  <section class="step hidden" id="step-run">
+    <header><span class="no">§ 04</span><h2>进度</h2></header>
+    <div class="bar"><div id="bar"></div></div>
+    <p class="msg" id="stage"></p>
+    <p class="msg err" id="runerr"></p>
+    <div id="decision" class="hidden">
+      <p class="msg" id="decision-text"></p>
+      <label for="newlimit">新的上限（¥，0 表示不限）</label>
+      <input type="text" id="newlimit" inputmode="decimal" autocomplete="off">
+      <div class="actions">
+        <button class="solid" id="btn-raise">提高上限并继续</button>
+        <button class="secondary" id="btn-finish-partial">只输出已翻译的页</button>
+        <button class="secondary" id="btn-stop">先停下</button>
+      </div>
+      <p class="msg err" id="decision-err"></p>
+    </div>
+    <div class="actions">
+      <button class="secondary hidden" id="btn-cancel">取消</button>
+      <button class="secondary hidden" id="btn-continue">继续</button>
+      <button class="secondary hidden" id="btn-changekey">更换 API key</button>
+      <button class="secondary hidden" id="btn-save">保存 PDF</button>
+      <button class="secondary hidden" id="btn-reveal">打开所在文件夹</button>
+      <button class="secondary hidden" id="btn-again">修改设置</button>
+      <button class="secondary hidden" id="btn-delete">删除本书的文件</button>
+    </div>
+    <p class="msg" id="savemsg"></p>
+  </section>
+</main>
+
+<footer>
+  <div class="wrap">
+    <div class="cols">
+      <div id="about"><h3>关于</h3>
+        <p>双语书翻译（Book Translator）是自由软件，以 GNU AGPL-3.0 授权。源代码：<a href="https://github.com/Youngodd/booktrans" target="_blank" rel="noreferrer">github.com/Youngodd/booktrans</a>。
+        本软件内含 PyMuPDF（AGPL，Artifex）。</p></div>
+      <div><h3>须知</h3>
+        <p>费用由你的 key 承担。翻译质量可能有差异，重要内容请自行核对。关闭应用会暂停任务，再次打开后点“继续”。</p></div>
+    </div>
+  </div>
+</footer>
+
+<script src="/static/desktop.zh.js"></script>
+<script src="/static/desktop.js"></script>
+</body>
+</html>

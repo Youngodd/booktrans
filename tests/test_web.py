@@ -45,6 +45,23 @@ def test_index_page_is_served(make_client):
     assert r.status_code == 200 and "Book Translator" in r.text
 
 
+def test_each_language_has_its_own_page_and_the_switch_links_to_the_other(make_client):
+    c = make_client()
+    en, zh = c.get("/en"), c.get("/zh")
+    assert '<html lang="en">' in en.text and 'href="/zh"' in en.text and "每一页" not in en.text
+    assert '<html lang="zh-CN">' in zh.text and 'href="/en"' in zh.text and "Every English page" not in zh.text
+    assert c.get("/fr").status_code == 404
+
+
+def test_root_goes_to_the_chosen_language_else_the_browsers(make_client):
+    c = make_client()
+    r = c.get("/", headers={"accept-language": "zh-CN,zh;q=0.9"}, follow_redirects=False)
+    assert r.status_code == 302 and r.headers["location"] == "/zh"
+    assert c.get("/", headers={"accept-language": "en-US"}, follow_redirects=False).headers["location"] == "/en"
+    c.get("/en")  # choosing a language by visiting its page is remembered, whatever the browser says
+    assert c.get("/", headers={"accept-language": "zh-CN"}, follow_redirects=False).headers["location"] == "/en"
+
+
 def test_upload_reports_page_count(make_client, text_pdf):
     r = upload(make_client(), "book.pdf", text_pdf.read_bytes())
     assert r.status_code == 200
