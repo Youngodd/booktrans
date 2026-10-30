@@ -11,9 +11,9 @@
   <div class="wrap">
     <span class="brand">双语书翻译</span>
     <nav>
-      <a href="#step-upload"><b>01</b>翻译</a>
-      <a href="#how"><b>02</b>工作原理</a>
-      <a href="#privacy"><b>03</b>隐私</a>
+      <a href="#step-upload">翻译</a>
+      <a href="#how">工作原理</a>
+      <a href="#privacy">隐私</a>
       <a class="lang" id="lang-switch" href="/en" lang="en" hreflang="en">English</a>
     </nav>
   </div>
@@ -46,10 +46,10 @@
     <p class="msg err hidden" id="insecure">本页未使用 HTTPS，你的 key 会以明文传输，请勿在此输入真实 key。</p>
     <label for="provider">模型供应商</label>
     <select id="provider">
-      <option value="api">Anthropic Claude</option>
+      <option value="deepseek">DeepSeek（不支持扫描页）</option>
       <option value="qwen">通义千问（阿里云中国站）</option>
       <option value="qwen-intl">通义千问（阿里云国际站）</option>
-      <option value="deepseek">DeepSeek（不支持扫描页）</option>
+      <option value="api">Anthropic Claude</option>
     </select>
     <label for="key">API key</label>
     <input type="password" id="key" autocomplete="off" spellcheck="false" placeholder="sk-ant-…">

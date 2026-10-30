@@ -11,9 +11,9 @@
   <div class="wrap">
     <span class="brand">Book Translator</span>
     <nav>
-      <a href="#step-upload"><b>01</b>Translate</a>
-      <a href="#how"><b>02</b>How it works</a>
-      <a href="#privacy"><b>03</b>Privacy</a>
+      <a href="#step-upload">Translate</a>
+      <a href="#how">How it works</a>
+      <a href="#privacy">Privacy</a>
       <a class="lang" id="lang-switch" href="/zh" lang="zh-CN" hreflang="zh-CN">中文</a>
     </nav>
   </div>
@@ -47,10 +47,10 @@
     <p class="msg err hidden" id="insecure">This page is not using HTTPS, so your key would travel unencrypted. Do not enter a real key here.</p>
     <label for="provider">Model provider</label>
     <select id="provider">
-      <option value="api">Anthropic Claude</option>
+      <option value="deepseek">DeepSeek (no scanned pages)</option>
       <option value="qwen">Qwen (Alibaba Cloud, China)</option>
       <option value="qwen-intl">Qwen (Alibaba Cloud, international)</option>
-      <option value="deepseek">DeepSeek (no scanned pages)</option>
+      <option value="api">Anthropic Claude</option>
     </select>
     <label for="key">API key</label>
     <input type="password" id="key" autocomplete="off" spellcheck="false" placeholder="sk-ant-…">

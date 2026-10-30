@@ -95,7 +95,6 @@ nav a, nav button {
   border: 0; border-radius: var(--radius-sm); background: none; cursor: pointer; text-decoration: none;
   font: 500 var(--fs-sm) / 1 var(--sans); color: var(--text-2); }
 nav a:hover, nav button:hover { background: var(--bg); color: var(--text); }
-nav b { font-weight: 600; font-size: var(--fs-xs); color: var(--primary); }
 nav a.lang { margin-left: var(--sp-2); border: 1px solid var(--border); color: var(--text); }
 nav a.lang:hover { border-color: var(--field-border); }
 
@@ -212,7 +211,6 @@ footer { margin-top: var(--sp-8); padding-block: var(--sp-7); border-top: 1px so
   .hero { padding-block: var(--sp-6) var(--sp-5); }
   .hero h1 { font-size: var(--fs-3xl); }
   .step { padding: var(--sp-5) var(--sp-4); border-radius: var(--radius); }
-  nav a b { display: none; }
   .actions > button, .actions > a.btn { flex: 1 1 100%; }
 }
 @media (prefers-reduced-motion: reduce) {

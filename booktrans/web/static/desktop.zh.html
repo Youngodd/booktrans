@@ -11,9 +11,9 @@
   <div class="wrap">
     <span class="brand">双语书翻译</span>
     <nav>
-      <a href="#step-upload"><b>01</b>翻译</a>
-      <button id="btn-settings"><b>02</b> 设置</button>
-      <a href="#about"><b>03</b>关于</a>
+      <a href="#step-upload">翻译</a>
+      <button id="btn-settings">设置</button>
+      <a href="#about">关于</a>
       <a class="lang" id="lang-switch" href="/en" lang="en" hreflang="en">English</a>
     </nav>
   </div>
@@ -39,10 +39,10 @@
     <p class="note" id="first-run-note">书中文字只会发给下面选择的供应商，本应用没有服务器，也不收集数据；请确保你有权翻译所用的书。</p>
     <label for="provider">模型供应商</label>
     <select id="provider">
-      <option value="api">Anthropic Claude</option>
+      <option value="deepseek">DeepSeek（不支持扫描页）</option>
       <option value="qwen">通义千问（阿里云中国站）</option>
       <option value="qwen-intl">通义千问（阿里云国际站）</option>
-      <option value="deepseek">DeepSeek（不支持扫描页）</option>
+      <option value="api">Anthropic Claude</option>
     </select>
     <p class="hint">国内站与国际站的 key 不通用，请选择你申请 key 的站点。</p>
     <p class="hint"><a href="#" id="keyhelp">如何获取 key？</a></p>

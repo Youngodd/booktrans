@@ -175,6 +175,7 @@ $("limit").addEventListener("input", updateEstimate);
 $("file").addEventListener("change", () => {
   const f = $("file").files[0];
   if (!f) return;
+  clearSaved();
   $("upmsg").textContent = ""; $("upmsg").className = "msg";
   show("upbar", true); $("upbar").firstElementChild.style.width = "0";
   const xhr = new XMLHttpRequest();
@@ -221,8 +222,9 @@ async function reviewNames(preview) {
 }
 
 /* ---------- start, progress, cancel ---------- */
+function clearSaved() { savedPath = ""; $("savemsg").textContent = ""; $("savemsg").className = "msg"; show("btn-reveal", false); }
 async function start(preview) {
-  $("startmsg").textContent = "";
+  $("startmsg").textContent = ""; clearSaved();
   if (!hasKey) { openKeyPanel(true); return; }
   if (!$("rights").checked) { $("startmsg").textContent = T.tickBox; return; }
   if (!(models[provider] || {}).model && !currentModels().model) { $("startmsg").textContent = T.modelRequired; return; }
@@ -293,10 +295,10 @@ function poll() {
     } catch (e) { clearInterval(timer); $("runerr").textContent = e.message; }
   }, 1500);
 }
-$("btn-again").onclick = () => { show("step-setup", true); $("startmsg").textContent = ""; };
+$("btn-again").onclick = () => { show("step-setup", true); $("startmsg").textContent = ""; clearSaved(); };
 $("btn-delete").onclick = async () => {
   try { await api("/api/jobs/" + job.id, { method: "DELETE" }); } catch (e) {}
-  job = null; savedPath = ""; show("step-setup", false); show("step-run", false); $("file").value = "";
+  job = null; clearSaved(); show("step-setup", false); show("step-run", false); $("file").value = "";
 };
 
 /* ---------- save the PDF where the user chooses ---------- */
