@@ -114,6 +114,8 @@ function currentModels() {
 function updateOcrPicker() {
   const c = models[provider] || {}, sel = $("ocr-model"), usable = !!c.vision && !c.ocr_shared;
   sel.disabled = $("ocr-model-custom").disabled = !usable || !$("ocr").checked;
+  for (const id of ["ocr-model-label", "ocr-model"]) show(id, !!c.vision);  // no OCR model to pick: only the hint below says so
+  if (!c.vision) show("ocr-model-custom", false);
   $("model-hint").textContent = c.ocr_shared ? T.ocrShared(currentModels().model || c.model)
     : !c.vision ? T.ocrNoVision : !$("ocr").checked ? T.ocrOff : "";
 }
