@@ -179,3 +179,9 @@ def test_cli_rejects_a_new_limit_below_the_spend_and_asks_again(cli_run, monkeyp
     monkeypatch.setattr("builtins.input", lambda prompt="": next(feed))
     go("--max-spend", "2.5")
     assert len(PdfReader(str(out)).pages) == 4
+
+
+def test_deepseek_estimate_uses_the_measured_figure_and_current_model():
+    from booktrans.backends import catalog
+    assert spend.est_cny_per_page()["deepseek"] == 0.001
+    assert catalog()["deepseek"]["model"] == "deepseek-flash"

@@ -5,11 +5,11 @@ Pages are translated one request at a time, so without help the model renders "B
 repeat are found locally (free), then the model fixes one Chinese rendering for each. Every
 page request then carries the entries that occur on that page.
 """
-import json
 import re
 from collections import defaultdict
 
 from .backends.base import AuthError, BackendError
+from .fsutil import read_json, write_json
 from .prompts import GLOSSARY_NOTE, GLOSSARY_PROMPT
 
 LOWER = r"[^\W\d_]"  # any letter, accented ones included (Kekulé)
@@ -76,20 +76,21 @@ def candidates(texts, min_count=2, max_terms=MAX_TERMS):
 def parse_file(path):
     """Read `English=中文` lines (also tab or comma separated); # starts a comment."""
     glossary = {}
-    for line in open(path, encoding="utf-8"):
-        line = line.split("#", 1)[0].strip()
-        parts = re.split(r"\s*[=\t,]\s*", line, maxsplit=1)
-        if len(parts) == 2 and parts[0] and parts[1]:
-            glossary[parts[0]] = parts[1]
+    with open(path, encoding="utf-8") as f:
+        for line in f:
+            line = line.split("#", 1)[0].strip()
+            parts = re.split(r"\s*[=\t,]\s*", line, maxsplit=1)
+            if len(parts) == 2 and parts[0] and parts[1]:
+                glossary[parts[0]] = parts[1]
     return glossary
 
 
 def load(path):
-    return json.loads(path.read_text(encoding="utf-8")) if path.exists() else {}
+    return read_json(path)
 
 
 def save(path, glossary):
-    path.write_text(json.dumps(glossary, ensure_ascii=False, indent=1, sort_keys=True), encoding="utf-8")
+    write_json(path, glossary, indent=1, sort_keys=True)
 
 
 def mentioned(term, text):

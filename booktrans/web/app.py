@@ -136,7 +136,10 @@ def create_app(data_dir=None, *, executor=None, backend_factory=jobs.default_bac
             return  # jobs and resume caches live until the user deletes them
         """Delete expired jobs now and then every hour while the server runs."""
         def sweep():
-            store.cleanup(retention_hours * 3600, drop_stored_result)
+            try:
+                store.cleanup(retention_hours * 3600, drop_stored_result)
+            except Exception:  # one failed sweep must not end the hourly ones
+                pass
 
         sweep()
 
@@ -253,7 +256,14 @@ def create_app(data_dir=None, *, executor=None, backend_factory=jobs.default_bac
             lang = "zh" if request.headers.get("accept-language", "").lower().startswith("zh") else "en"
         return RedirectResponse("/" + lang, status_code=302, headers={"Cache-Control": "no-store"})
 
-    app.mount("/static", StaticFiles(directory=STATIC), name="static")
+    class Revalidated(StaticFiles):
+        """Static files the browser must re-check each time, so an edited stylesheet shows at once."""
+        async def get_response(self, path, scope):
+            r = await super().get_response(path, scope)
+            r.headers["Cache-Control"] = "no-cache"
+            return r
+
+    app.mount("/static", Revalidated(directory=STATIC), name="static")
 
     @app.post("/api/jobs")
     async def upload(file: UploadFile = File(...), viewer: str = Depends(who)):
@@ -263,14 +273,17 @@ def create_app(data_dir=None, *, executor=None, backend_factory=jobs.default_bac
         job_id = store.new(file.filename, ocr=False, range="", pages_total=0,
                            owner=viewer or "")
         path = store.dir(job_id) / ("input" + ext)
-        size = 0
+        size, too_big = 0, False
         with open(path, "wb") as f:
             while chunk := await file.read(1 << 20):
                 size += len(chunk)
                 if size > max_upload_mb << 20:
-                    store.delete(job_id)
-                    raise HTTPException(413, f"The file is larger than {max_upload_mb} MB.")
+                    too_big = True
+                    break
                 f.write(chunk)
+        if too_big:  # deleted after the file is closed (Windows cannot remove an open file)
+            store.delete(job_id)
+            raise HTTPException(413, f"The file is larger than {max_upload_mb} MB.")
         try:
             n = total_pages(path)
         except Exception:
@@ -377,7 +390,7 @@ def create_app(data_dir=None, *, executor=None, backend_factory=jobs.default_bac
     @app.post("/api/jobs/{job_id}/start")
     def start(job_id: str, req: StartRequest, viewer: str = Depends(who)):
         job = get_job(job_id, viewer)
-        if job["state"] in ACTIVE:
+        if job["state"] in ACTIVE or job.get("glossary_state") == "building":
             raise HTTPException(409, "This job is already running.")
         key = "" if req.only_cached else check_key(req.api_key, req.provider)
         limit = default_limit if req.spend_limit is None else req.spend_limit
@@ -393,6 +406,7 @@ def create_app(data_dir=None, *, executor=None, backend_factory=jobs.default_bac
         rng = resolve_range(job, req.pages, req.preview)
         provider = provider_for(req)
         model, ocr_model = check_models(provider, req.model, req.ocr_model, req.ocr)
+        (store.dir(job_id) / "cancel").unlink(missing_ok=True)  # a Cancel that came too late must not stop this run
         store.write(job_id, state="queued", provider=provider, model=model, ocr_model=ocr_model, stage="", done=0, total=0, error="", ocr=req.ocr,
                     range=rng, preview=req.preview, started=time.time(), email=email,
                     email_state="", auto_glossary=req.auto_glossary, spend_limit=limit,

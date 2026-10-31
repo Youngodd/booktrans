@@ -440,3 +440,9 @@ def test_glossary_is_private_and_validated(make_client):
     assert c.put(url, json={"entries": {"A": "x"}}, headers=bob).status_code == 404
     assert c.put(url, json={"entries": {"": "x"}}, headers=alice).status_code == 400
     assert c.put(url, json={"entries": {"A": "x" * 81}}, headers=alice).status_code == 400
+
+
+def test_a_token_with_a_non_ascii_signature_is_refused_not_an_error():
+    from booktrans.web import auth
+    t = auth.make_token("k", "openid-1", now=1000)
+    assert auth.read_token("k", t[:-1] + "é", now=2000) is None

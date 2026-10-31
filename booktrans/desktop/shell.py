@@ -227,9 +227,11 @@ class Api:
             return {"ok": False}
         dest = dest if isinstance(dest, str) else dest[0]
         r = self._sidecar.http.get(f"/api/jobs/{job_id}/download")
+        if r.status_code != 200:  # do not write an error message into a .pdf file
+            return {"ok": False, "error": r.json().get("detail", "") if r.headers.get("content-type", "").startswith("application/json") else ""}
         with open(dest, "wb") as f:
             f.write(r.content)
-        return {"ok": r.status_code == 200, "path": dest}
+        return {"ok": True, "path": dest}
 
 
     def reveal(self, path):

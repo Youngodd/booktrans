@@ -34,7 +34,11 @@
 
   <section class="step" id="step-upload">
     <header><span class="no">§ 01</span><h2>上传</h2></header>
-    <input type="file" id="file" accept=".pdf,.epub,.txt">
+    <div class="filepick">
+      <input type="file" id="file" accept=".pdf,.epub,.txt">
+      <span class="pickbtn" aria-hidden="true">选择文件</span>
+      <span id="filename" data-empty="未选择文件">未选择文件</span>
+    </div>
     <p class="hint">PDF / EPUB / TXT，不超过 <span id="maxmb">60</span> MB</p>
     <div class="bar hidden" id="upbar"><div></div></div>
     <p class="msg" id="upmsg"></p>

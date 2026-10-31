@@ -7,7 +7,7 @@ translated are in the cache, so a later run (with a higher limit) resumes withou
 What was spent is kept in a file next to the output, so the limit is per book across runs.
 
 PRICES are ESTIMATES, not measured figures: only the Anthropic cost per page (about US$0.017)
-was measured on a scanned book. The rates below are list prices recalled by the maintainer and
+was measured on a scanned book, and DeepSeek's (about ¥0.001) in one run. The rates below are list prices recalled by the maintainer and
 have not been checked against each provider's current price page; check them before relying on
 the guard for real money. Conversions use USD_CNY.
 """
@@ -16,6 +16,7 @@ import math
 from pathlib import Path
 
 from .backends.base import LLMBackend
+from .fsutil import write_json
 
 DEFAULT_LIMIT_CNY = 10.0  # yuan per book unless the user chooses another limit (0 = no limit)
 USD_CNY = 7.2             # estimate
@@ -25,7 +26,9 @@ PRICES = {
     "api": {"text": (3 * USD_CNY, 15 * USD_CNY), "vision": (3 * USD_CNY, 15 * USD_CNY)},  # Sonnet-class list price, UNVERIFIED for the current model
     "qwen": {"text": (0.8, 2.0), "vision": (3.0, 9.0)},                                    # UNVERIFIED
     "qwen-intl": {"text": (0.4 * USD_CNY, 1.2 * USD_CNY), "vision": (0.8 * USD_CNY, 3.2 * USD_CNY)},  # UNVERIFIED
-    "deepseek": {"text": (2.0, 8.0), "vision": (2.0, 8.0)},                                # UNVERIFIED
+    # deepseek-flash, peak-hour cache-miss list price $0.30 in / $1.20 out per 1M tokens, read from
+    # api-docs.deepseek.com on 2026-10-31 and converted at USD_CNY (off-peak is half; cache hits far less)
+    "deepseek": {"text": (0.3 * USD_CNY, 1.2 * USD_CNY), "vision": (0.3 * USD_CNY, 1.2 * USD_CNY)},
 }
 CACHE_WRITE_FACTOR, CACHE_READ_FACTOR = 1.25, 0.1  # Anthropic prompt caching, relative to the input rate
 
@@ -33,6 +36,7 @@ CACHE_WRITE_FACTOR, CACHE_READ_FACTOR = 1.25, 0.1  # Anthropic prompt caching, r
 # a page of ordinary text is roughly this many tokens in and out, prompts included.
 EST_TOKENS_PER_PAGE = (1500, 1500)
 MEASURED_ANTHROPIC_USD_PER_PAGE = 0.017  # measured on a scanned history book
+MEASURED_CNY_PER_PAGE = {"deepseek": 0.001}  # one run: 110 pages cost about ¥0.1 (2026-10-30); far below the token guess
 
 
 class SpendLimitReached(Exception):
@@ -46,9 +50,9 @@ class SpendLimitReached(Exception):
 
 def est_cny_per_page():
     """Rough cost of one page for each provider, in yuan. Anthropic uses the measured figure."""
-    out = {"api": MEASURED_ANTHROPIC_USD_PER_PAGE * USD_CNY}
+    out = {"api": MEASURED_ANTHROPIC_USD_PER_PAGE * USD_CNY, **MEASURED_CNY_PER_PAGE}
     for name, rates in PRICES.items():
-        if name != "api":
+        if name not in out:
             tin, tout = EST_TOKENS_PER_PAGE
             out[name] = (tin * rates["text"][0] + tout * rates["text"][1]) / 1e6
     return {k: round(v, 3) for k, v in out.items()}
@@ -89,7 +93,7 @@ class Meter:
     def add(self, yuan):
         self.spent += yuan
         if self.path and yuan:
-            self.path.write_text(json.dumps({"spent_cny": round(self.spent, 6)}), encoding="utf-8")
+            write_json(self.path, {"spent_cny": round(self.spent, 6)})
 
     def check(self, provider, kind, in_chars, max_tokens):
         """Raise SpendLimitReached unless a call of about this size still fits under the limit."""

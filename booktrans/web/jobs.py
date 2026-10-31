@@ -93,7 +93,10 @@ class JobStore:
         now, removed = time.time(), 0
         for path in self.root.iterdir():
             if path.is_dir() and ID_RE.match(path.name):
-                newest = max((p.stat().st_mtime for p in path.iterdir()), default=0)
+                try:
+                    newest = max((p.stat().st_mtime for p in path.iterdir()), default=0)
+                except OSError:  # a running job replaced a temporary file while we looked
+                    continue
                 if now - newest > max_age_s:
                     if on_expire:
                         on_expire(self.read(path.name) or {})

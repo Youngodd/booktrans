@@ -39,7 +39,7 @@ def read_token(secret, token, now=None):
         if int(exp) < (now or time.time()):
             return None
         return base64.urlsafe_b64decode(enc + "=" * (-len(enc) % 4)).decode()
-    except (ValueError, AttributeError):
+    except (ValueError, AttributeError, TypeError):  # TypeError: a non-ASCII signature
         return None
 
 

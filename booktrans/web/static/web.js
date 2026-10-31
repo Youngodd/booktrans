@@ -49,7 +49,11 @@ $("provider").addEventListener("change", () => {
   updateEstimate();
 });
 
+function showFileName() {  // Chinese pages: the visible name beside the button (English pages have none)
+  const n = $("filename"); if (n) n.textContent = ($("file").files[0] || {}).name || n.dataset.empty;
+}
 $("file").addEventListener("change", () => {
+  showFileName();
   const f = $("file").files[0];
   if (!f) return;
   $("upmsg").textContent = ""; $("upmsg").className = "msg";
@@ -122,7 +126,7 @@ function poll() {
 $("btn-again").onclick = () => { show("step-setup", true); $("startmsg").textContent = ""; };
 $("btn-delete").onclick = async () => {
   try { await api("/api/jobs/" + job.id, { method: "DELETE" }); } catch (e) {}
-  save(""); job = null; show("step-setup", false); show("step-run", false); $("file").value = "";
+  save(""); job = null; show("step-setup", false); show("step-run", false); $("file").value = ""; showFileName();
 };
 
 (async function resume() {

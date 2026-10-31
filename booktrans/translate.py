@@ -1,10 +1,10 @@
 """Translate page text through an LLM backend, with an on-disk cache."""
-import json
 import re
 import time
 
 from .backends.base import AuthError, BackendError
 from . import glossary as gloss
+from .fsutil import read_json, write_json
 from .prompts import LAYOUT_PROMPT, SYSTEM_PROMPT
 
 RETRY_DELAYS = (5, 20, 60)  # seconds to wait before each retry of a failed call
@@ -24,11 +24,11 @@ def complete(backend, system, text, max_tokens):
 
 
 def load_cache(path):
-    return json.loads(path.read_text(encoding="utf-8")) if path.exists() else {}
+    return read_json(path)
 
 
 def save_cache(path, cache):
-    path.write_text(json.dumps(cache, ensure_ascii=False), encoding="utf-8")  # resumable
+    write_json(path, cache)  # resumable
 
 
 def with_glossary(system, glossary, text):

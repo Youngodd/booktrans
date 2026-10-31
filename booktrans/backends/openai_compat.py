@@ -24,8 +24,8 @@ PROVIDERS = {
         "label": "Qwen (Alibaba Cloud, international)"},
     "deepseek": {
         "base_url": "https://api.deepseek.com",
-        "key_env": "DEEPSEEK_API_KEY", "model": "deepseek-chat", "vision": None,
-        "models": ["deepseek-chat", "deepseek-reasoner"], "vision_models": [],
+        "key_env": "DEEPSEEK_API_KEY", "model": "deepseek-flash", "vision": None,  # deepseek-chat/-reasoner were retired 2026-07-24
+        "models": ["deepseek-flash", "deepseek-v4-pro"], "vision_models": [],
         "label": "DeepSeek"},
     "openai-compatible": {  # anything else: set BOOKTRANS_BASE_URL, BOOKTRANS_API_KEY and --model
         "base_url": None, "key_env": "BOOKTRANS_API_KEY", "model": None, "vision": None,

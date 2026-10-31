@@ -560,8 +560,25 @@ def test_model_choices_are_kept_per_provider_by_the_shell(tmp_path, monkeypatch)
     api = shell.Api(None)
     assert api.get_models() == {}
     assert api.set_models("qwen", "qwen-max", "qwen-vl-plus")["ok"]
-    assert api.set_models("deepseek", "deepseek-reasoner", "")["ok"]
+    assert api.set_models("deepseek", "deepseek-v4-pro", "")["ok"]
     assert api.get_models() == {"qwen": {"model": "qwen-max", "ocr_model": "qwen-vl-plus"},
-                                "deepseek": {"model": "deepseek-reasoner", "ocr_model": ""}}
+                                "deepseek": {"model": "deepseek-v4-pro", "ocr_model": ""}}
     assert api.set_models("qwen", "bad id!", "")["ok"] is False
     assert api.get_models()["qwen"]["model"] == "qwen-max"  # a refused value changes nothing
+
+
+def test_a_late_cancel_does_not_stop_the_next_run(make, text_pdf, tmp_path):
+    c = make()
+    c.put("/api/key", json={"api_key": KEY})
+    up = c.post("/api/jobs", files={"file": ("b.pdf", text_pdf.read_bytes())}).json()
+    (tmp_path / "data" / "jobs" / up["id"] / "cancel").write_text("1")  # left by a Cancel that came too late
+    c.post(f"/api/jobs/{up['id']}/start", json={"auto_glossary": False})
+    assert wait(c, up["id"])["state"] == "done"
+
+
+def test_start_waits_while_the_glossary_is_being_built(make, text_pdf):
+    c = make()
+    c.put("/api/key", json={"api_key": KEY})
+    up = c.post("/api/jobs", files={"file": ("b.pdf", text_pdf.read_bytes())}).json()
+    JobStore(c.app.state.store.root).write(up["id"], glossary_state="building")
+    assert c.post(f"/api/jobs/{up['id']}/start", json={}).status_code == 409

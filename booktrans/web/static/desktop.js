@@ -172,7 +172,11 @@ function updateEstimate() {
 $("pages").addEventListener("input", updateEstimate);
 $("limit").addEventListener("input", updateEstimate);
 
+function showFileName() {  // Chinese pages: the visible name beside the button (English pages have none)
+  const n = $("filename"); if (n) n.textContent = ($("file").files[0] || {}).name || n.dataset.empty;
+}
 $("file").addEventListener("change", () => {
+  showFileName();
   const f = $("file").files[0];
   if (!f) return;
   clearSaved();
@@ -298,7 +302,7 @@ function poll() {
 $("btn-again").onclick = () => { show("step-setup", true); $("startmsg").textContent = ""; clearSaved(); };
 $("btn-delete").onclick = async () => {
   try { await api("/api/jobs/" + job.id, { method: "DELETE" }); } catch (e) {}
-  job = null; clearSaved(); show("step-setup", false); show("step-run", false); $("file").value = "";
+  job = null; clearSaved(); show("step-setup", false); show("step-run", false); $("file").value = ""; showFileName();
 };
 
 /* ---------- save the PDF where the user chooses ---------- */

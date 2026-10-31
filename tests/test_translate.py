@@ -53,3 +53,12 @@ def test_layout_cache_length_mismatch_retranslates(fake, tmp_path):
     cp = tmp_path / "c.json"; cache = {"L4": ["only one"]}
     translate_all(fake, [4], ["x"], {0: B}, {0: ("", "")}, cache, cp)
     assert cache["L4"] == ["译1", "译2"]
+
+
+def test_a_damaged_cache_file_is_ignored_and_writes_leave_no_temp_file(tmp_path):
+    from booktrans.translate import load_cache, save_cache
+    p = tmp_path / "x.cache.json"
+    p.write_text('{"0": "tr', encoding="utf-8")  # a write cut short
+    assert load_cache(p) == {}
+    save_cache(p, {"0": "译"})
+    assert load_cache(p) == {"0": "译"} and not list(tmp_path.glob("*.tmp"))
