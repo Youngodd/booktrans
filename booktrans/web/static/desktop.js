@@ -122,6 +122,11 @@ function fillPickers() {  // the choices kept for this provider, else its defaul
   const saved = prefs[provider] || {};
   fillPicker($("model"), $("model-custom"), c.models, c.model, saved.model || "");
   fillPicker($("ocr-model"), $("ocr-model-custom"), c.ocr_shared ? [] : c.vision_models, c.vision, saved.ocr_model || "");
+  if (!c.vision) {  // no model reads scanned pages: say so in the box, not "Custom…" with an empty field
+    const sel = $("ocr-model"); sel.innerHTML = "";
+    sel.add(new Option(T.ocrNoVision.replace(/[。.]$/, ""), "")); sel.value = "";
+    show("ocr-model-custom", false);
+  }
   updateOcrPicker();
 }
 function modelsChanged() {
