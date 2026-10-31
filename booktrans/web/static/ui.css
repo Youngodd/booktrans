@@ -97,6 +97,8 @@ nav a, nav button {
 nav a:hover, nav button:hover { background: var(--bg); color: var(--text); }
 nav a.lang { margin-left: var(--sp-2); border: 1px solid var(--border); color: var(--text); }
 nav a.lang:hover { border-color: var(--field-border); }
+nav button.theme { margin-left: var(--sp-2); border: 1px solid var(--border); color: var(--text); }
+nav button.theme:hover { border-color: var(--field-border); }
 
 /* ---------- hero ---------- */
 .hero { padding-block: var(--sp-8) var(--sp-6); }

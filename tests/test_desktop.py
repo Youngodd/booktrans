@@ -156,8 +156,13 @@ def test_desktop_serves_its_own_page_and_hosted_keeps_the_old_one(make, tmp_path
 
 def test_page_never_reads_or_stores_the_key(make):
     for lang in ("en", "zh"):
-        page = whole_page(make(), lang)
+        c = make()
+        theme_js = c.get("/static/theme.js").text
+        page = whole_page(c, lang).replace(theme_js, "")  # the theme button remembers its choice, nothing else
         assert "localStorage" not in page and "sessionStorage" not in page
+        assert "sessionStorage" not in theme_js
+        assert theme_js.count("localStorage") == theme_js.count('localStorage.getItem("theme")') \
+            + theme_js.count('localStorage.setItem("theme"') + theme_js.count('localStorage.removeItem("theme")')
         assert "api_key: $" not in page  # keys travel via the shell or PUT /api/key only
 
 

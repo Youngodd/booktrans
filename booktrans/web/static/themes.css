@@ -1,0 +1,52 @@
+/* Colour themes. The default (no data-theme) is the terracotta palette in ui.css.
+   The button in the header (theme.js) switches and remembers the choice. By hand: set data-theme="ocean" | "forest" | "contrast" on <html> (e.g. <html lang="zh-CN" data-theme="ocean">).
+   Each theme only overrides colour tokens, light first and a dark variant for when the system is in dark mode;
+   to add one, copy a block and change its values. Linked after ui.css, so it wins at equal specificity. */
+
+/* ocean */
+:root[data-theme="ocean"] {
+  --gray-50: #f6f8fb; --gray-100: #eef2f7; --gray-200: #dde4ee; --gray-300: #c6d0de; --gray-400: #8995a8; --gray-500: #616f83; --gray-600: #4d5b70; --gray-700: #384457; --gray-800: #252f3f; --gray-900: #141b27;
+  --brand-50: #eaf2fd; --brand-100: #cfe1fa; --brand-300: #7fb0ee; --brand-500: #2f6fc9; --brand-600: #245fb0; --brand-700: #1b4a8d;
+  --surface: #fff; --primary-text: #fff;
+  --shadow-1: 0 1px 2px rgb(20 30 50 / .06), 0 1px 3px rgb(20 30 50 / .08); --shadow-2: 0 2px 4px rgb(20 30 50 / .06), 0 8px 24px rgb(20 30 50 / .08);
+}
+@media (prefers-color-scheme: dark) {
+  :root[data-theme="ocean"] {
+    --gray-50: #141a24; --gray-100: #0e131b; --gray-200: #212a38; --gray-300: #313d50; --gray-400: #66758c; --gray-500: #92a1b8; --gray-600: #b0bccf; --gray-700: #ccd4e1; --gray-800: #e1e7f0; --gray-900: #f1f4f9;
+    --brand-50: #14233a; --brand-100: #1b3354; --brand-300: #3f74b8; --brand-500: #6aa5ee; --brand-600: #6aa5ee; --brand-700: #93bdf5;
+    --surface: #182030; --primary-text: #0e131b;
+    --shadow-1: 0 1px 2px rgb(0 0 0 / .4); --shadow-2: 0 8px 24px rgb(0 0 0 / .4);
+  }
+}
+
+/* forest */
+:root[data-theme="forest"] {
+  --gray-50: #f6f8f4; --gray-100: #eef2eb; --gray-200: #dde5d8; --gray-300: #c5d0be; --gray-400: #8d9885; --gray-500: #64705e; --gray-600: #4f5a49; --gray-700: #3a4336; --gray-800: #272e24; --gray-900: #151a13;
+  --brand-50: #e9f5ec; --brand-100: #cde8d4; --brand-300: #7fc294; --brand-500: #2f8a52; --brand-600: #247443; --brand-700: #1b5c35;
+  --surface: #fff; --primary-text: #fff;
+  --shadow-1: 0 1px 2px rgb(21 26 19 / .06), 0 1px 3px rgb(21 26 19 / .08); --shadow-2: 0 2px 4px rgb(21 26 19 / .06), 0 8px 24px rgb(21 26 19 / .08);
+}
+@media (prefers-color-scheme: dark) {
+  :root[data-theme="forest"] {
+    --gray-50: #141a14; --gray-100: #0e130e; --gray-200: #202a20; --gray-300: #303d30; --gray-400: #667a68; --gray-500: #93a896; --gray-600: #b0c2b3; --gray-700: #cddacf; --gray-800: #e1ebe3; --gray-900: #f1f6f2;
+    --brand-50: #14261a; --brand-100: #1b3a26; --brand-300: #3f8f5a; --brand-500: #6cc28c; --brand-600: #6cc28c; --brand-700: #8fd4a8;
+    --surface: #182118; --primary-text: #0e130e;
+    --shadow-1: 0 1px 2px rgb(0 0 0 / .4); --shadow-2: 0 8px 24px rgb(0 0 0 / .4);
+  }
+}
+
+/* contrast */
+:root[data-theme="contrast"] {
+  --gray-50: #ffffff; --gray-100: #f5f5f5; --gray-200: #d9d9d9; --gray-300: #8c8c8c; --gray-400: #595959; --gray-500: #4a4a4a; --gray-600: #333333; --gray-700: #262626; --gray-800: #1a1a1a; --gray-900: #000000;
+  --brand-50: #e8f0ff; --brand-100: #cfe0ff; --brand-300: #6a93e8; --brand-500: #0040b0; --brand-600: #0033a0; --brand-700: #00237a;
+  --surface: #fff; --primary-text: #fff;
+  --shadow-1: 0 1px 2px rgb(0 0 0 / .06), 0 1px 3px rgb(0 0 0 / .08); --shadow-2: 0 2px 4px rgb(0 0 0 / .06), 0 8px 24px rgb(0 0 0 / .08);
+}
+@media (prefers-color-scheme: dark) {
+  :root[data-theme="contrast"] {
+    --gray-50: #111111; --gray-100: #000000; --gray-200: #2a2a2a; --gray-300: #8c8c8c; --gray-400: #bdbdbd; --gray-500: #d0d0d0; --gray-600: #e0e0e0; --gray-700: #ececec; --gray-800: #f5f5f5; --gray-900: #ffffff;
+    --brand-50: #0d1a33; --brand-100: #14284d; --brand-300: #3a64b0; --brand-500: #7fb0ff; --brand-600: #7fb0ff; --brand-700: #a8c8ff;
+    --surface: #0a0a0a; --primary-text: #000000;
+    --shadow-1: 0 1px 2px rgb(0 0 0 / .4); --shadow-2: 0 8px 24px rgb(0 0 0 / .4);
+  }
+}
