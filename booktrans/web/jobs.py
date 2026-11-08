@@ -212,7 +212,8 @@ def _failure_text(e, api_key):
 def run_glossary_draft(root, job_id, api_key, backend_factory=default_backend, provider="api",
                        pages=""):
     """Build the book's glossary ahead of the translation so the user can review it."""
-    from ..pipeline import draft_glossary
+    from ..languages import DEFAULT_TARGET
+    from ..pipeline import draft_glossary, glossary_path
     from ..spend import Meter, SpendLimitReached
     store = JobStore(root)
     job = store.read(job_id)
@@ -223,8 +224,10 @@ def run_glossary_draft(root, job_id, api_key, backend_factory=default_backend, p
     try:
         translator = backend_factory(api_key, provider, **_chosen(job, False))
         meter = Meter(job.get("spend_limit", 0), path / "output.spend.json")
+        target = job.get("target", DEFAULT_TARGET)
         glossary = draft_glossary(path / ("input" + job["ext"]), translator,
-                                  path / "output.glossary.json", pages=pages or None, meter=meter)
+                                  glossary_path(path / "output.pdf", target), pages=pages or None,
+                                  meter=meter, source=job.get("source", "auto"), target=target)
         store.write(job_id, glossary_state="ready", spent_cny=round(meter.spent, 4),
                     glossary_count=sum(1 for zh in glossary.values() if zh))
     except SpendLimitReached as e:
@@ -240,6 +243,7 @@ def run_glossary_draft(root, job_id, api_key, backend_factory=default_backend, p
 def run_job(root, job_id, api_key, backend_factory=default_backend, provider="api",
             send_mail=None):
     """Run one job to the end. Executed in a worker process (or thread, in tests)."""
+    from ..languages import DEFAULT_TARGET
     from ..pipeline import Cancelled, translate_book
     from ..spend import Meter, NoCalls, SpendLimitReached, rest_estimate
     store = JobStore(root)
@@ -265,14 +269,17 @@ def run_job(root, job_id, api_key, backend_factory=default_backend, provider="ap
         translate_book(path / ("input" + job["ext"]), path / "output.pdf", translator,
                        ocr_backend=translator if job["ocr"] else None, pages=pages,
                        progress=progress, auto_glossary=job.get("auto_glossary", True),
-                       meter=meter, only_cached=job.get("only_cached", False))
+                       meter=meter, only_cached=job.get("only_cached", False),
+                       source=job.get("source", "auto"), target=job.get("target", DEFAULT_TARGET),
+                       output_mode=job.get("output_mode", "bilingual"))
         store.write(job_id, state="done", stage="done", usage=translator.usage.as_dict(),
                     finished=time.time(), spent_cny=round(meter.spent, 4),
                     partial=bool(job.get("only_cached", False)))
         if send_mail and job.get("email"):
             try:
                 stem = Path(job["filename"]).stem or "book"
-                send_mail(job["email"], path / "output.pdf", f"{stem}_bilingual.pdf")
+                tag = "bilingual" if job.get("output_mode", "bilingual") == "bilingual" else job.get("target", DEFAULT_TARGET)
+                send_mail(job["email"], path / "output.pdf", f"{stem}_{tag}.pdf")
                 store.write(job_id, email_state="sent")
             except Exception:  # the PDF is still downloadable; just record the failure
                 store.write(job_id, email_state="failed")

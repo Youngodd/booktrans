@@ -17,6 +17,7 @@ async function api(path, opts) {
 function setBook(j) {
   job = j;
   $("bookinfo").textContent = T.bookInfo(j.filename, j.pages_total);
+  showDetected(j);
   updateEstimate();
   show("step-setup", true);
 }
@@ -79,7 +80,7 @@ async function start(preview) {
   try {
     const j = await api("/api/jobs/" + job.id + "/start", {
       method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ api_key: $("key").value, provider: $("provider").value, pages: $("pages").value, preview: preview, ocr: $("ocr").checked }),
+      body: JSON.stringify(Object.assign({ api_key: $("key").value, provider: $("provider").value, pages: $("pages").value, preview: preview, ocr: $("ocr").checked }, languageFields())),
     });
     $("key").value = "";  // the server has it; do not leave it in the page
     render(j); poll();
@@ -128,6 +129,8 @@ $("btn-delete").onclick = async () => {
   try { await api("/api/jobs/" + job.id, { method: "DELETE" }); } catch (e) {}
   save(""); job = null; show("step-setup", false); show("step-run", false); $("file").value = ""; showFileName();
 };
+
+fetch("/api/config").then((r) => r.json()).then((c) => initLanguages(c.languages, c.default_target)).catch(() => {});
 
 (async function resume() {
   const id = saved();

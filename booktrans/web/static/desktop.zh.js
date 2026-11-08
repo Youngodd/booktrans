@@ -1,4 +1,7 @@
 const T = {
+  autoDetect: "自动识别",
+  detected: (name) => "识别到的语言：" + name + "。如不对，请在上面更改。",
+  notDetected: "暂未识别出语言，将由模型自行判断。",
   stages: { scan: "分析版面", ocr: "识别扫描页", glossary: "整理译名",
             translate: "翻译中", render: "生成页面", "": "排队中" },
   providers: { api: "Anthropic Claude", qwen: "通义千问（国内站）", "qwen-intl": "通义千问（国际站）", deepseek: "DeepSeek" },

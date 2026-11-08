@@ -49,7 +49,7 @@ def test_each_language_has_its_own_page_and_the_switch_links_to_the_other(make_c
     c = make_client()
     en, zh = c.get("/en"), c.get("/zh")
     assert '<html lang="en">' in en.text and 'href="/zh"' in en.text and "每一页" not in en.text
-    assert '<html lang="zh-CN">' in zh.text and 'href="/en"' in zh.text and "Every English page" not in zh.text
+    assert '<html lang="zh-CN">' in zh.text and 'href="/en"' in zh.text and "Every English page" not in zh.text and "Any book" not in zh.text
     assert c.get("/fr").status_code == 404
 
 

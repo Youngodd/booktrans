@@ -1,4 +1,7 @@
 const T = {
+  autoDetect: "自动识别",
+  detected: (name) => "识别到的语言：" + name + "。如不对，请在上面更改。",
+  notDetected: "暂未识别出语言，将由模型自行判断。",
   stages: { scan: "分析版面", ocr: "识别扫描页", translate: "翻译中",
             render: "生成页面", "": "排队等待空闲处理器" },
   bookInfo: (name, n) => name + " — 共 " + n + " 页",

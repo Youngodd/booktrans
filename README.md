@@ -1,7 +1,9 @@
 # book-translator
 
-Translate English books (PDF / EPUB / TXT) into a bilingual PDF: each English
-page is followed by its Chinese translation on the next page.
+Translate books (PDF / EPUB / TXT) from any widely used language into another with AI.
+The book's language is detected automatically; you choose the target language and
+whether the PDF is bilingual (each original page followed by its translation) or
+holds the translation only.
 
 ## Setup
 
@@ -11,8 +13,9 @@ pip install -r requirements.txt
 ```
 
 The requirements include `opencv-python-headless` (used to clean scanned pages;
-no model or training involved) and `fonttools` (to subset the CJK font embedded
-in each Chinese page, which keeps the output PDF small).
+no model or training involved), `fonttools` (to subset the fonts embedded in each
+translated page, which keeps the output PDF small) and `charset-normalizer` (to read
+legacy-encoded TXT files).
 
 The default backend, `claude-cli`, uses your logged-in [Claude Code](https://claude.com/claude-code)
 CLI (`claude`), so no API key is needed. To use the Anthropic API instead:
@@ -27,28 +30,57 @@ python -m booktrans mybook.epub --backend api
 ```
 python -m booktrans mybook.epub                 # -> mybook_bilingual.pdf
 python -m booktrans mybook.pdf --pages 1-10     # -> mybook_bilingual pages 1-10.pdf
+python -m booktrans livre.pdf --target en       # French (detected) -> English
+python -m booktrans book.pdf --target ja --output-mode target-only   # -> book_ja.pdf
 ```
+
+Languages (`--source`, `--target`): English `en`, Simplified Chinese `zh-CN` (default target),
+Traditional Chinese `zh-TW`, Japanese `ja`, Korean `ko`, Spanish `es`, French `fr`,
+German `de`, Portuguese `pt`, Russian `ru`, Arabic `ar`, Hindi `hi`, Italian `it`. The list
+lives in `booktrans/languages.py`.
 
 | Option | Meaning |
 | --- | --- |
 | `-o, --output` | output PDF path |
 | `--backend NAME` | LLM provider: `claude-cli` (default), `api`, `qwen`, `qwen-intl`, `deepseek`, `openai-compatible` |
+| `--source LANG` | language of the book; default `auto` = detected from the text (several pages, so a cover in another language does not mislead). If detection is unsure the model identifies the language itself |
+| `--target LANG` | language to translate into (default `zh-CN`) |
+| `--output-mode MODE` | `bilingual` (default): each original page then its translation; `target-only`: translated pages only (a page with nothing to translate, such as a picture, is kept as it is). The default file name is `<book>_bilingual.pdf` or `<book>_<target>.pdf` |
 | `--model` | model name (default: the backend's default) |
 | `--pages 1-20` | only this page range (a single number or `start-end`) |
 | `--redo 9-10` | re-translate these pages even if cached |
-| `--flat` | PDF input: plain-text Chinese pages instead of the original layout |
+| `--flat` | PDF input: plain-text translated pages instead of the original layout |
 | `--ocr` | OCR scanned pages (needs a vision-capable backend) |
 | `--ocr-backend`, `--ocr-model` | use a different backend / model for OCR |
 
 Progress is cached in `<output>.cache.json`, so an interrupted run resumes
-without re-paying for finished pages.
+without re-paying for finished pages. Entries are keyed by target language (Simplified
+Chinese keeps the plain keys of earlier versions), and the glossary is kept per target
+(`<output>.glossary.<lang>.json`), so switching the target never reuses the wrong text.
+With the default file names, running again with only `--output-mode` changed rebuilds
+the PDF from the cache and spends nothing.
+
+### Language detection and special characters
+
+Detection (`languages.detect_language`) needs no model call or extra package: the writing
+system settles Japanese (kana), Korean, Chinese (simplified or traditional), Russian, Arabic
+and Hindi, and the commonest words settle English, Spanish, French, German, Portuguese and
+Italian. The web pages show the detected language and let the user change it.
+
+Text pages and redrawn pages are drawn with MuPDF's HTML engine and its built-in fonts, chosen
+per character, so symbols (© ™ → • ½ ✓ …), accents, emoji and every listed script come from a
+font that has them. Arabic is shaped and set right to left; Hindi conjuncts are shaped.
+Control codes, U+FFFD and unassigned code points are removed before drawing, and legacy-encoded
+TXT files (Shift-JIS, GBK, Big5, EUC-KR, Windows-1251/1252) are decoded properly. Limits: a
+glyph that no built-in font has (some rare enclosed characters such as ㈠) is left blank, and
+Japanese text shares the Chinese-oriented CJK font, so a few kanji use Chinese letter shapes.
 
 ### Page layout (text PDFs)
 
-For PDFs with a text layer, the Chinese page is a copy of the original page with
-its English text replaced in place, so headings, bullets, side panels and images
+For PDFs with a text layer, the translated page is a copy of the original page with
+its source text replaced in place, so headings, bullets, side panels and images
 keep their positions. The text is translated block by block (cached under `L<page>`
-keys in the cache file). Use `--flat` for the older plain-text Chinese pages.
+keys in the cache file). Use `--flat` for plain-text translated pages.
 EPUB and TXT always use plain-text pages. Known limits: inline highlights such
 as a boxed word, and dashed link underlines, stay in place without their text.
 
@@ -125,8 +157,10 @@ variables: `BOOKTRANS_DATA` (data folder, default `data`), `BOOKTRANS_WORKERS`
 (parallel jobs, default 2), `HOST`, `PORT`. Limits (upload size, pages per job,
 retention) are arguments of `create_app` in `booktrans/web/app.py`.
 
-API: `POST /api/jobs` (upload) → `POST /api/jobs/{id}/start` (`api_key`, `pages`,
-`preview`, `ocr`) → `GET /api/jobs/{id}` (state, stage, done/total) →
+API: `GET /api/config` (includes `languages`, the list for the pickers, and `default_target`) →
+`POST /api/jobs` (upload; the job carries `detected_language`, `""` if unsure) →
+`POST /api/jobs/{id}/start` (`api_key`, `pages`, `preview`, `ocr`, `source` (`auto` or a code),
+`target` (default `zh-CN`), `output_mode` (`bilingual` or `target-only`); an unknown code is a 400) → `GET /api/jobs/{id}` (state, stage, done/total) →
 `GET /api/jobs/{id}/download`; `DELETE /api/jobs/{id}` removes the files.
 
 ### Deploying
@@ -164,9 +198,11 @@ booktrans/
   readers.py      PDF / EPUB / TXT -> list of page texts, page ranges
   ocr.py          OCR of scanned pages (via a vision backend)
   translate.py    translation, retry/fallback, on-disk cache
-  layout.py       find text blocks / paragraphs / table cells on a PDF page, redraw it in Chinese
+  languages.py    the language list, page labels and language detection
+  textclean.py    drops characters that cannot be drawn (U+FFFD, control codes...)
+  layout.py       find text blocks / paragraphs / table cells on a PDF page, redraw it in the target language
   figures.py      clean ink layer of a scan (OpenCV): keeps lines, curves and symbols
-  writer.py       assemble the bilingual PDF
+  writer.py       assemble the PDF (bilingual or translation only); typeset text pages
   web/            web service: app.py (API), jobs.py (job storage, worker), static/index.html
   usage.py        token usage tracking
   prompts.py      prompts sent to the model

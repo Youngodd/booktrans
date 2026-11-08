@@ -24,12 +24,12 @@
 
 <main class="wrap">
   <section class="hero">
-    <span class="label">双语对照</span>
-    <h1>每一页英文，后面紧跟对应的<em>中文</em>页。</h1>
-    <p class="lead">上传一本书，使用你自己的 API key，得到一份保留原版面的双语 PDF，段落、表格、插图都在。</p>
+    <span class="label">多语言图书翻译</span>
+    <h1>任何语言的书，译成<em>你的语言</em>。</h1>
+    <p class="lead">上传一本书，使用你自己的 API key，选择语言，得到一份保留原版面的 PDF，段落、表格、插图都在。</p>
     <dl class="facts">
       <div><dt>格式</dt><dd>PDF · EPUB · TXT</dd></div>
-      <div><dt>输出</dt><dd>双语 PDF</dd></div>
+      <div><dt>输出</dt><dd>双语对照或仅译文 PDF</dd></div>
       <div><dt>你的 key</dt><dd>只存于内存，不会保存</dd></div>
       <div><dt>文件</dt><dd>24 小时后删除</dd></div>
     </dl>
@@ -61,6 +61,16 @@
     <label for="key">API key</label>
     <input type="password" id="key" autocomplete="off" spellcheck="false" placeholder="sk-ant-…">
     <p class="hint">仅用于本次任务，只保存在内存中，不会存储或记录。</p>
+    <label for="source">书籍语言</label>
+    <select id="source"></select>
+    <p class="hint" id="detected"></p>
+    <label for="target">翻译成</label>
+    <select id="target"></select>
+    <label for="output-mode">输出 PDF</label>
+    <select id="output-mode">
+      <option value="bilingual">双语对照：原文页后紧跟译文页</option>
+      <option value="target-only">仅译文</option>
+    </select>
     <label for="pages">页码范围 <span class="opt">（可留空）</span></label>
     <input type="text" id="pages" placeholder="例如 1-20">
     <label class="check"><input type="checkbox" id="ocr">
@@ -103,6 +113,7 @@
 </footer>
 
 <script src="/static/web.zh.js"></script>
+<script src="/static/langs.js"></script>
 <script src="/static/web.js"></script>
 </body>
 </html>

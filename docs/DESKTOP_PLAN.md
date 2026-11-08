@@ -82,7 +82,7 @@ Measured in the current venv (`site-packages` about 300 MB uncompressed, before 
 | `pymupdf` | 50 MB | Core |
 | `numpy` | 21 MB | Needed by OpenCV |
 | `lxml` | 20 MB | EPUB parsing |
-| `PIL`, `fontTools`, `openai`, `anthropic`, `reportlab`, others | about 50 MB | Core |
+| `PIL`, `fontTools`, `openai`, `anthropic`, others | about 50 MB | Core |
 
 Expectation: roughly 100-150 MB installed after PyInstaller and `--exclude-module` pruning. This is a
 guess until M0 measures it.

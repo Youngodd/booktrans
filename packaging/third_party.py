@@ -9,7 +9,7 @@ import re
 import sys
 from importlib import metadata
 
-ROOTS = ["pypdf", "reportlab", "ebooklib", "beautifulsoup4", "pymupdf", "anthropic", "openai",
+ROOTS = ["pypdf", "charset-normalizer", "ebooklib", "beautifulsoup4", "pymupdf", "anthropic", "openai",
          "opencv-python-headless", "fonttools", "fastapi", "uvicorn", "python-multipart",
          "pywebview", "keyring", "httpx"]
 OK = ("mit", "bsd", "apache", "isc", "psf", "python software foundation", "mpl", "mozilla",

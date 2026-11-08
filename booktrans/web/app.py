@@ -16,7 +16,8 @@ from pydantic import BaseModel
 
 from ..backends import catalog
 from ..backends.base import AuthError, BackendError
-from ..pipeline import total_pages
+from ..pipeline import detect_book_language, glossary_path, total_pages
+from .. import languages
 from ..readers import parse_range
 from .. import glossary as glossary_mod
 from . import auth, jobs, mailer, wxcloud
@@ -45,6 +46,9 @@ class StartRequest(BaseModel):
     only_cached: bool = False         # finish with the pages already translated, spending nothing
     model: str = ""                   # translating model; empty = the provider's default
     ocr_model: str = ""               # model for reading scanned pages; empty = the provider's default
+    source: str = "auto"              # language of the book; auto = the detected one
+    target: str = languages.DEFAULT_TARGET  # language to translate into (a code of /api/config languages)
+    output_mode: str = "bilingual"    # or "target-only": only the translated pages
 
 
 class DraftRequest(BaseModel):
@@ -53,6 +57,8 @@ class DraftRequest(BaseModel):
     pages: str = ""
     preview: bool = False
     model: str = ""
+    source: str = "auto"
+    target: str = languages.DEFAULT_TARGET
 
 
 class GlossaryEdit(BaseModel):
@@ -71,6 +77,13 @@ class KeyRequest(BaseModel):
 
 class LoginRequest(BaseModel):
     code: str
+
+
+def download_name(job):
+    """`<book>_bilingual.pdf`, or `<book>_<target>.pdf` for a translation-only PDF."""
+    stem = Path(job["filename"]).stem or "book"
+    tag = job.get("target", languages.DEFAULT_TARGET) if job.get("output_mode") == "target-only" else "bilingual"
+    return f"{stem}_{tag}.pdf"
 
 
 def _setting(value, env, default):
@@ -171,7 +184,7 @@ def create_app(data_dir=None, *, executor=None, backend_factory=jobs.default_bac
         keys = ("id", "filename", "state", "stage", "done", "total", "error", "error_code", "error_detail", "pages_total",
                 "range", "preview", "usage", "email_state", "glossary_state", "glossary_error",
                 "glossary_count", "auto_glossary", "spent_cny", "spend_limit", "est_rest_cny",
-                "partial")
+                "partial", "detected_language", "source", "target", "output_mode")
         approx = spend.price_approx(job.get("provider", ""), job.get("model", ""),
                                     job.get("ocr_model", ""), job.get("ocr", False))
         return {k: job[k] for k in keys if k in job} | {"est_cost_per_page": EST_COST_PER_PAGE,
@@ -189,7 +202,8 @@ def create_app(data_dir=None, *, executor=None, backend_factory=jobs.default_bac
     def config():
         return {"email_enabled": mailer.configured(), "desktop": desktop,
                 "default_spend_limit": default_limit, "est_cny_per_page": spend.est_cny_per_page(),
-                "currency": "CNY", "models": catalog(),
+                "currency": "CNY", "models": catalog(), "languages": languages.listing(),
+                "default_target": languages.DEFAULT_TARGET,
                 "has_key": bool(session.get("key")), "provider": session.get("provider", "")}
 
     if desktop:
@@ -289,12 +303,25 @@ def create_app(data_dir=None, *, executor=None, backend_factory=jobs.default_bac
         except Exception:
             store.delete(job_id)
             raise HTTPException(400, "This file could not be read as a book.")
-        store.write(job_id, pages_total=n)
+        store.write(job_id, pages_total=n, detected_language=detect_language_of(path))
         return public(store.read(job_id))
 
     @app.get("/api/jobs/{job_id}")
     def status(job_id: str, viewer: str = Depends(who)):
         return public(get_job(job_id, viewer))
+
+    def detect_language_of(path):
+        """The book's language code for the pickers ("" when it cannot be told)."""
+        try:
+            return detect_book_language(path) or ""
+        except Exception:  # detection is a convenience; the user can still choose
+            return ""
+
+    def check_languages(source, target, mode="bilingual"):
+        try:
+            return languages.check_source(source), languages.check_target(target), languages.check_mode(mode)
+        except ValueError as e:
+            raise HTTPException(400, str(e))
 
     def check_key(api_key, provider):
         if desktop and not api_key:
@@ -354,7 +381,9 @@ def create_app(data_dir=None, *, executor=None, backend_factory=jobs.default_bac
         rng = resolve_range(job, req.pages, req.preview)
         provider = provider_for(req)
         model, _ = check_models(provider, req.model, "", False)
-        store.write(job_id, glossary_state="building", glossary_error="", model=model)
+        source, target, _ = check_languages(req.source, req.target)
+        store.write(job_id, glossary_state="building", glossary_error="", model=model,
+                    source=source, target=target)
         executor.submit(jobs.run_glossary_draft, str(store.root), job_id, key, backend_factory,
                         provider, rng)
         return public(store.read(job_id))
@@ -362,7 +391,7 @@ def create_app(data_dir=None, *, executor=None, backend_factory=jobs.default_bac
     @app.get("/api/jobs/{job_id}/glossary")
     def glossary_get(job_id: str, viewer: str = Depends(who)):
         job = get_job(job_id, viewer)
-        entries = glossary_mod.load(store.dir(job_id) / "output.glossary.json")
+        entries = glossary_mod.load(glossary_path(store.dir(job_id) / "output.pdf", job.get("target", languages.DEFAULT_TARGET)))
         return {"state": job.get("glossary_state", ""), "error": job.get("glossary_error", ""),
                 "entries": [{"term": t, "zh": zh} for t, zh in
                             sorted(entries.items(), key=lambda p: p[0].lower()) if zh]}
@@ -375,7 +404,7 @@ def create_app(data_dir=None, *, executor=None, backend_factory=jobs.default_bac
             raise HTTPException(409, "Wait for the job to finish first.")
         if len(req.entries) > MAX_GLOSSARY_ENTRIES:
             raise HTTPException(400, "Too many glossary entries.")
-        path = store.dir(job_id) / "output.glossary.json"
+        path = glossary_path(store.dir(job_id) / "output.pdf", job.get("target", languages.DEFAULT_TARGET))
         glossary = glossary_mod.load(path)
         for term, zh in req.entries.items():
             term, zh = term.strip(), zh.strip()
@@ -406,10 +435,12 @@ def create_app(data_dir=None, *, executor=None, backend_factory=jobs.default_bac
         rng = resolve_range(job, req.pages, req.preview)
         provider = provider_for(req)
         model, ocr_model = check_models(provider, req.model, req.ocr_model, req.ocr)
+        source, target, mode = check_languages(req.source, req.target, req.output_mode)
         (store.dir(job_id) / "cancel").unlink(missing_ok=True)  # a Cancel that came too late must not stop this run
         store.write(job_id, state="queued", provider=provider, model=model, ocr_model=ocr_model, stage="", done=0, total=0, error="", ocr=req.ocr,
                     range=rng, preview=req.preview, started=time.time(), email=email,
                     email_state="", auto_glossary=req.auto_glossary, spend_limit=limit,
+                    source=source, target=target, output_mode=mode,
                     only_cached=req.only_cached, partial=False, spent_cny=round(spent, 4),
                     est_rest_cny=None)
         executor.submit(jobs.run_job, str(store.root), job_id, key, backend_factory,
@@ -444,7 +475,7 @@ def create_app(data_dir=None, *, executor=None, backend_factory=jobs.default_bac
         except Exception:
             store.delete(job_id)
             raise HTTPException(400, "This file could not be read as a book.")
-        store.write(job_id, pages_total=n)
+        store.write(job_id, pages_total=n, detected_language=detect_language_of(path))
         return public(store.read(job_id))
 
     @app.get("/api/jobs/{job_id}/result")
@@ -462,8 +493,7 @@ def create_app(data_dir=None, *, executor=None, backend_factory=jobs.default_bac
                 raise HTTPException(502, "Could not store the finished PDF. Try again.")
             store.write(job_id, result_file_id=file_id, env=env)
             job["result_file_id"] = file_id
-        stem = Path(job["filename"]).stem or "book"
-        return {"file_id": job["result_file_id"], "filename": f"{stem}_bilingual.pdf"}
+        return {"file_id": job["result_file_id"], "filename": download_name(job)}
 
     @app.get("/api/jobs/{job_id}/download")
     def download(job_id: str, viewer: str = Depends(who)):
@@ -471,9 +501,8 @@ def create_app(data_dir=None, *, executor=None, backend_factory=jobs.default_bac
         out = store.dir(job_id) / "output.pdf"
         if job["state"] != "done" or not out.exists():
             raise HTTPException(409, "The translation is not finished.")
-        stem = Path(job["filename"]).stem or "book"
         return FileResponse(out, media_type="application/pdf",
-                            filename=f"{stem}_bilingual.pdf",
+                            filename=download_name(job),
                             headers={"Cache-Control": "no-store"})
 
     @app.delete("/api/jobs/{job_id}")

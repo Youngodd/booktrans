@@ -24,13 +24,13 @@
 
 <main class="wrap">
   <section class="hero">
-    <span class="label">Bilingual books</span>
-    <h1>Every English page, followed by its <em>Chinese</em> translation.</h1>
-    <p class="lead">Upload a book, bring your own Anthropic API key, and receive one PDF that keeps the original layout —
+    <span class="label">Books in any language</span>
+    <h1>Any book, from any language into <em>yours</em>.</h1>
+    <p class="lead">Upload a book, bring your own API key, choose the languages, and receive one PDF that keeps the original layout —
        paragraphs, tables, figures and all.</p>
     <dl class="facts">
       <div><dt>Formats</dt><dd>PDF · EPUB · TXT</dd></div>
-      <div><dt>Output</dt><dd>Bilingual PDF</dd></div>
+      <div><dt>Output</dt><dd>Bilingual or translation-only PDF</dd></div>
       <div><dt>Your key</dt><dd>Memory only, never stored</dd></div>
       <div><dt>Files</dt><dd>Deleted after 24 h</dd></div>
     </dl>
@@ -58,6 +58,16 @@
     <label for="key">API key</label>
     <input type="password" id="key" autocomplete="off" spellcheck="false" placeholder="sk-ant-…">
     <p class="hint">Used only for this job, kept in memory, never saved or logged.</p>
+    <label for="source">Book language</label>
+    <select id="source"></select>
+    <p class="hint" id="detected"></p>
+    <label for="target">Translate into</label>
+    <select id="target"></select>
+    <label for="output-mode">Output PDF</label>
+    <select id="output-mode">
+      <option value="bilingual">Bilingual: each original page, then its translation</option>
+      <option value="target-only">Translation only</option>
+    </select>
     <label for="pages">Page range <span class="opt">(optional)</span></label>
     <input type="text" id="pages" placeholder="e.g. 1-20">
     <label class="check"><input type="checkbox" id="ocr">
@@ -100,6 +110,7 @@
 </footer>
 
 <script src="/static/web.en.js"></script>
+<script src="/static/langs.js"></script>
 <script src="/static/web.js"></script>
 </body>
 </html>

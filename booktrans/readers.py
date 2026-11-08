@@ -58,8 +58,39 @@ def read_epub(path):
     return paginate(paras)
 
 
+_LATIN_SINGLE_BYTE = {"cp1250", "cp1254", "cp1257", "cp775", "iso8859_2", "iso8859_4", "iso8859_9",
+                      "iso8859_10", "iso8859_13", "iso8859_14", "iso8859_15", "iso8859_16",
+                      "latin_1", "mac_roman", "mac_latin2", "cp850", "cp437"}
+
+
+def decode_text(data):
+    """Text of a file's bytes: UTF-8 or UTF-16 as they are, else the encoding that
+    charset-normalizer finds (Shift-JIS, GBK, Big5, EUC-KR, Windows-1251...), so a legacy
+    text file does not turn into mojibake. Undecodable bytes become U+FFFD only as a last
+    resort (they are dropped again before drawing)."""
+    if data.startswith((b"\xff\xfe", b"\xfe\xff")):
+        return data.decode("utf-16")
+    try:
+        return data.decode("utf-8-sig")
+    except UnicodeDecodeError:
+        pass
+    try:
+        from charset_normalizer import from_bytes
+        best = from_bytes(data).best()
+        if best is not None:
+            if best.encoding in _LATIN_SINGLE_BYTE:  # western text: Windows-1252 is by far the likeliest
+                try:
+                    return data.decode("cp1252")
+                except UnicodeDecodeError:
+                    pass
+            return str(best)
+    except ImportError:
+        pass
+    return data.decode("cp1252", errors="replace")
+
+
 def read_txt(path):
-    text = Path(path).read_text(encoding="utf-8", errors="replace")
+    text = decode_text(Path(path).read_bytes())
     return paginate([p.strip() for p in re.split(r"\n\s*\n", text) if p.strip()])
 
 

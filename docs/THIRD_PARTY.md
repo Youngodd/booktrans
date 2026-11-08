@@ -1,7 +1,7 @@
 # Third-party licenses
 
 Dependency check required by [ADR 0003](adr/0003-license-desktop-app-under-agpl.md). Generated 2026-10-18 by
-`packaging/third_party.py` from the installed package metadata (macOS development environment, 55 packages).
+`packaging/third_party.py` from the installed package metadata (macOS development environment, 54 packages).
 The compatibility column is a rough guide from the license name, not legal advice.
 
 ## Result
@@ -15,6 +15,15 @@ The compatibility column is a rough guide from the license name, not legal advic
 - The `pyobjc-*` rows are macOS-only and are not in the Windows build. The Windows build also contains pythonnet,
   clr-loader, cffi, pycparser and pywin32-ctypes, which are not in this list because it was generated on macOS;
   they are expected to be MIT or BSD but have not been checked.
+
+## Fonts
+
+Output pages are drawn with MuPDF's built-in fonts (inside the PyMuPDF wheel), chosen per character, so no
+font file is added by this project: Nimbus Sans/Roman (AGPL/GPL with font exception, URW), Droid Sans Fallback
+(Apache-2.0, Chinese/Japanese/Korean), Noto Naskh Arabic, Noto Serif Devanagari, Noto Sans Symbols 2 and Noto
+Emoji (SIL OFL 1.1). Embedded fonts are subset to the glyphs used (`fonttools`). reportlab, whose CJK-only
+font caused the garbled symbols, is no longer used. Check these font licenses against the PyMuPDF wheel before
+a public release.
 
 ## Not verified
 
@@ -75,7 +84,6 @@ The compatibility column is a rough guide from the license name, not legal advic
 | pypdf | 6.19.0 | BSD-3-Clause | yes |
 | python-multipart | 0.0.20 | Apache-2.0 | yes |
 | pywebview | 6.2.1 | BSD License | yes |
-| reportlab | 5.0.1 | BSD License | yes |
 | six | 1.17.0 | MIT License | yes |
 | sniffio | 1.3.1 | MIT License; Apache Software License | yes |
 | soupsieve | 2.8.4 | MIT | yes |

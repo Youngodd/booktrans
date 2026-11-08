@@ -24,8 +24,8 @@
 
 <main class="wrap">
   <section class="hero">
-    <span class="label">Bilingual books</span>
-    <h1>Every English page, followed by its <em>Chinese</em> translation.</h1>
+    <span class="label">Books in any language</span>
+    <h1>Any book, from any language into <em>yours</em>.</h1>
     <p class="lead">Your book is translated on this computer. Only the text goes to the model provider you choose, with your own API key.</p>
   </section>
 
@@ -72,6 +72,16 @@
     <select id="ocr-model"></select>
     <input type="text" id="ocr-model-custom" class="hidden" autocomplete="off" spellcheck="false" placeholder="model id, e.g. qwen-plus">
     <p class="hint" id="model-hint"></p>
+    <label for="source">Book language</label>
+    <select id="source"></select>
+    <p class="hint" id="detected"></p>
+    <label for="target">Translate into</label>
+    <select id="target"></select>
+    <label for="output-mode">Output PDF</label>
+    <select id="output-mode">
+      <option value="bilingual">Bilingual: each original page, then its translation</option>
+      <option value="target-only">Translation only</option>
+    </select>
     <label for="pages">Page range <span class="opt">(optional)</span></label>
     <input type="text" id="pages" placeholder="e.g. 1-20">
     <label class="check"><input type="checkbox" id="ocr">
@@ -143,6 +153,7 @@
 </footer>
 
 <script src="/static/desktop.en.js"></script>
+<script src="/static/langs.js"></script>
 <script src="/static/desktop.js"></script>
 </body>
 </html>

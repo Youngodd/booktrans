@@ -1,5 +1,4 @@
 pypdf
-reportlab
 ebooklib
 beautifulsoup4
 # pinned: newer releases load an optional layout feature on import whose data files the
@@ -9,3 +8,4 @@ anthropic
 openai
 opencv-python-headless
 fonttools
+charset-normalizer

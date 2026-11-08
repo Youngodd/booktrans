@@ -10,7 +10,7 @@ from collections import defaultdict
 
 from .backends.base import AuthError, BackendError
 from .fsutil import read_json, write_json
-from .prompts import GLOSSARY_NOTE, GLOSSARY_PROMPT
+from .prompts import GLOSSARY_NOTE, glossary_prompt
 
 LOWER = r"[^\W\d_]"  # any letter, accented ones included (Kekulé)
 WORD = rf"[A-ZÀ-ÖØ-Þ]{LOWER}*(?:[-'’]{LOWER}+)*"
@@ -97,7 +97,7 @@ def mentioned(term, text):
     return re.search(rf"(?<!{LOWER}){re.escape(term)}(?!{LOWER})", text) is not None
 
 
-def build(backend, all_texts, needed_texts, glossary, progress=None):
+def build(backend, all_texts, needed_texts, glossary, progress=None, source="en", target="zh-CN"):
     """Add to `glossary` the names of `needed_texts` that it lacks; returns the new entries.
 
     Names are counted over `all_texts` (the whole book), so a name seen only once in the
@@ -114,7 +114,7 @@ def build(backend, all_texts, needed_texts, glossary, progress=None):
         chunk = todo[start:start + CHUNK]
         src = "\n".join(f"[{n}] {t} | {ex}" for n, (t, ex) in enumerate(chunk, 1))
         try:
-            out = complete(backend, GLOSSARY_PROMPT, src, 4096)
+            out = complete(backend, glossary_prompt(source, target), src, 4096)
         except AuthError:
             raise
         except BackendError:

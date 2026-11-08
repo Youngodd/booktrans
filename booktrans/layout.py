@@ -2,6 +2,17 @@
 import re
 from xml.sax.saxutils import escape
 
+from . import languages
+from .languages import has_words
+from .textclean import clean_text
+
+_CJK = re.compile(r"[\u3040-\u30ff\u3400-\u9fff\uac00-\ud7af\uff00-\uffef]")
+
+
+def _sep(a, b):
+    """What joins two wrapped lines: nothing between CJK characters, else a space."""
+    return "" if _CJK.match(a[-1:]) and _CJK.match(b[:1]) else " "
+
 
 def extract_blocks(page):
     """Text blocks of a PDF page (pymupdf page): text, bbox and style.
@@ -38,7 +49,7 @@ def extract_blocks(page):
                 if cur and len(segs) == 1 and not cur["split"] and cur["style"] == style:
                     t = cur["text"]  # re-join wrapped lines, undoing line-end hyphens
                     cur["text"] = t[:-1] + text if t.endswith("-") and text[:1].islower() \
-                        else t + " " + text
+                        else t + _sep(t, text) + text
                     cur["bbox"] = [min(cur["bbox"][0], x0), cur["bbox"][1],
                                    max(cur["bbox"][2], x1), y1]
                     cur["lines"] += 1
@@ -50,7 +61,7 @@ def extract_blocks(page):
                            "style": style, "split": len(segs) > 1}
                     groups.append(cur)
         for g in groups:
-            if re.search(r"[A-Za-z]{2}", g["text"]):  # skip page numbers, symbols
+            if has_words(g["text"]):  # skip page numbers, symbols
                 del g["style"], g["split"]
                 blocks.append(g)
     return blocks
@@ -60,7 +71,7 @@ def _join(text, new):
     """Join wrapped lines, undoing a line-end hyphen."""
     if text.endswith("-") and new[:1].islower():
         return text[:-1] + new
-    return text + " " + new
+    return text + _sep(text, new) + new
 
 
 def _median(values):
@@ -115,7 +126,7 @@ def _scan_rows(page):
                  "size": max(s, key=lambda c: len(c["text"]))["size"],
                  "color": max(s, key=lambda c: len(c["text"]))["color"],
                  "bold": max(s, key=lambda c: len(c["text"]))["bold"]} for s in segs]
-        segs = [s for s in segs if re.search(r"[A-Za-z]{2}", s["text"])]
+        segs = [s for s in segs if has_words(s["text"])]
         if not segs:
             continue
         dom = max(segs, key=lambda s: len(s["text"]))
@@ -187,7 +198,7 @@ def _table_cells(rows, cols, em, right):
             cur.append(w)
         out.append(cur)
         res = [dict(seg, text=" ".join(w[2] for w in c), x0=c[0][0], x1=c[-1][1]) for c in out]
-        return [p for p in res if re.search(r"[A-Za-z]{2}", p["text"])]
+        return [p for p in res if has_words(p["text"])]
 
     cells, ri, tail = {}, -1, ""
     for r in rows:
@@ -293,8 +304,8 @@ def paper_color(page, bbox):
 KEEP = "~"  # the translator's answer for a block that is a symbol or OCR noise: keep its ink
 
 
-def render_clean_page(book, page_no, blocks, zh):
-    """One-page PDF (bytes) for a scan: a clean white page with the Chinese text.
+def render_clean_page(book, page_no, blocks, zh, target=languages.DEFAULT_TARGET):
+    """One-page PDF (bytes) for a scan: a clean white page with the translated text.
 
     The page's lines, curves and symbols are kept as clean ink (figures.ink_layer);
     the English text is dropped and its Chinese drawn on top. Each paragraph starts
@@ -303,6 +314,8 @@ def render_clean_page(book, page_no, blocks, zh):
     """
     import fitz
     from .figures import ink_layer
+    rtl = languages.is_rtl(target)
+    zh = [clean_text(t) for t in zh]
     drawn = [(b, t.strip()) for b, t in zip(blocks, zh) if t.strip() not in ("", KEEP)]
     with fitz.open(str(book)) as src:
         pr = src[page_no].rect
@@ -340,9 +353,10 @@ def render_clean_page(book, page_no, blocks, zh):
     def draw(pg, b, text, rel, rect, center, f):
         flow = b["lines"] >= 3 and not b.get("cell")
         css = ("* {font-family: sans-serif; font-size: %.2fpt; color: %s; font-weight: %s; "
-               "text-align: %s; text-indent: %s; margin: 0; line-height: %.2f;}"
+               "direction: %s; text-align: %s; text-indent: %s; margin: 0; line-height: %.2f;}"
                % (em * rel * f, b["color"], "bold" if b["bold"] else "normal",
-                  "center" if center else "justify" if flow else "left",
+                  "rtl" if rtl else "ltr",
+                  "center" if center else "justify" if flow else "right" if rtl else "left",
                   "2em" if b.get("indent") and b["lines"] >= 2 else "0", 1.5 if flow else 1.3))
         return pg.insert_htmlbox(rect, escape(text).replace("\n", "<br>"), css=css, scale_low=1)
 
@@ -362,11 +376,11 @@ def render_clean_page(book, page_no, blocks, zh):
     return doc.tobytes(garbage=4, deflate=True)
 
 
-def render_layout_page(book, page_no, blocks, zh):
-    """One-page PDF (bytes): the original page with its text swapped for Chinese."""
+def render_layout_page(book, page_no, blocks, zh, target=languages.DEFAULT_TARGET):
+    """One-page PDF (bytes): the original page with its text swapped for the translation."""
     import fitz
     if "indent" in blocks[0]:  # paragraph blocks of a scan
-        return render_clean_page(book, page_no, blocks, zh)
+        return render_clean_page(book, page_no, blocks, zh, target)
     with fitz.open(str(book)) as doc:
         doc.select([page_no])
         page = doc[0]
@@ -374,7 +388,10 @@ def render_layout_page(book, page_no, blocks, zh):
                  if d.get("fill") and d["rect"].width > 20 and d["rect"].height > 20]
         scanned = has_page_image(page)
         paper = [paper_color(page, b["bbox"]) for b in blocks] if scanned else []
+        kept = [t.strip() == KEEP for t in zh]  # symbols and noise: their ink stays, nothing is drawn
         for k, b in enumerate(blocks):
+            if kept[k]:
+                continue
             rect = fitz.Rect(b["bbox"])
             if scanned:  # the English is printed in the scan: paint it out
                 page.add_redact_annot(rect + (-1, -1, 1, 1), fill=paper[k])
@@ -383,8 +400,10 @@ def render_layout_page(book, page_no, blocks, zh):
         page.apply_redactions(
             images=fitz.PDF_REDACT_IMAGE_PIXELS if scanned else fitz.PDF_REDACT_IMAGE_NONE,
             graphics=fitz.PDF_REDACT_LINE_ART_NONE)
+        rtl = languages.is_rtl(target)
         for b, text in zip(blocks, zh):
-            if not text:
+            text = clean_text(text)
+            if not text.strip() or text.strip() == KEEP:
                 continue
             rect = fitz.Rect(b["bbox"])
             # room to grow downward (one extra line, or up to the next block)
@@ -414,9 +433,10 @@ def render_layout_page(book, page_no, blocks, zh):
             size = b["size"]
             while True:  # largest size (down to 60%) at which the text fits the box
                 css = ("* {font-family: sans-serif; font-size: %.1fpt; color: %s; "
-                       "font-weight: %s; text-align: %s; margin: 0; line-height: 1.3;}"
+                       "font-weight: %s; direction: %s; text-align: %s; margin: 0; line-height: 1.3;}"
                        % (size, b["color"], "bold" if b["bold"] else "normal",
-                          "center" if center else "left"))
+                          "rtl" if rtl else "ltr",
+                          "center" if center else "right" if rtl else "left"))
                 spare, _ = page.insert_htmlbox(rect, html, css=css, scale_low=1)
                 if spare >= 0:
                     break

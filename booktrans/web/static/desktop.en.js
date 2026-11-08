@@ -1,4 +1,7 @@
 const T = {
+  autoDetect: "Auto-detect",
+  detected: (name) => "Detected language: " + name + ". Change it above if that is wrong.",
+  notDetected: "Language not detected yet; the model will work it out.",
   stages: { scan: "Analysing layout", ocr: "Reading scanned pages", glossary: "Collecting names",
             translate: "Translating", render: "Building pages", "": "Starting" },
   providers: { api: "Anthropic Claude", qwen: "Qwen (China)", "qwen-intl": "Qwen (international)", deepseek: "DeepSeek" },

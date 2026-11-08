@@ -24,8 +24,8 @@
 
 <main class="wrap">
   <section class="hero">
-    <span class="label">双语对照</span>
-    <h1>每一页英文，后面紧跟对应的<em>中文</em>页。</h1>
+    <span class="label">多语言图书翻译</span>
+    <h1>任何语言的书，译成<em>你的语言</em>。</h1>
     <p class="lead">书在本机处理，只有文字会发给你选择的模型供应商，并使用你自己的 API key。</p>
   </section>
 
@@ -75,6 +75,16 @@
     <select id="ocr-model"></select>
     <input type="text" id="ocr-model-custom" class="hidden" autocomplete="off" spellcheck="false" placeholder="模型名，例如 qwen-plus">
     <p class="hint" id="model-hint"></p>
+    <label for="source">书籍语言</label>
+    <select id="source"></select>
+    <p class="hint" id="detected"></p>
+    <label for="target">翻译成</label>
+    <select id="target"></select>
+    <label for="output-mode">输出 PDF</label>
+    <select id="output-mode">
+      <option value="bilingual">双语对照：原文页后紧跟译文页</option>
+      <option value="target-only">仅译文</option>
+    </select>
     <label for="pages">页码范围 <span class="opt">（可留空）</span></label>
     <input type="text" id="pages" placeholder="例如 1-20">
     <label class="check"><input type="checkbox" id="ocr">
@@ -146,6 +156,7 @@
 </footer>
 
 <script src="/static/desktop.zh.js"></script>
+<script src="/static/langs.js"></script>
 <script src="/static/desktop.js"></script>
 </body>
 </html>

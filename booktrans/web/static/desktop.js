@@ -153,6 +153,7 @@ function updateUsing() {
 function setBook(j) {
   job = j;
   $("bookinfo").textContent = T.bookInfo(j.filename, j.pages_total);
+  showDetected(j);
   updateEstimate(); show("step-setup", true);
 }
 function pageCount() {
@@ -209,7 +210,7 @@ async function reviewNames(preview) {
   $("names").innerHTML = ""; show("btn-names-go", false); show("btn-names-skip", false);
   $("namesmsg").className = "msg"; $("namesmsg").textContent = T.namesCollecting;
   try {
-    await api("/api/jobs/" + job.id + "/glossary/draft", json("POST", { pages: $("pages").value, preview, model: currentModels().model }));
+    await api("/api/jobs/" + job.id + "/glossary/draft", json("POST", Object.assign({ pages: $("pages").value, preview, model: currentModels().model }, languageFields())));
     let g;
     do { await new Promise((r) => setTimeout(r, 1500)); g = await api("/api/jobs/" + job.id + "/glossary"); } while (g.state === "building");
     if (g.state === "failed") throw new Error(g.error || "failed");
@@ -247,7 +248,7 @@ async function begin(preview, extra = {}) {
   if (lim === null) { show("step-setup", true); $("startmsg").textContent = T.limitNumber; return; }
   try {
     const j = await api("/api/jobs/" + job.id + "/start", json("POST", Object.assign({ provider, pages: $("pages").value, preview, ocr: $("ocr").checked, auto_glossary: true, spend_limit: lim,
-      model: currentModels().model, ocr_model: $("ocr").checked ? currentModels().ocr_model : "" }, extra)));
+      model: currentModels().model, ocr_model: $("ocr").checked ? currentModels().ocr_model : "" }, languageFields(), extra)));
     render(j); poll();
   } catch (e) { show("step-setup", true); $("startmsg").textContent = e.message; }
 }
@@ -314,7 +315,7 @@ $("btn-delete").onclick = async () => {
 
 /* ---------- save the PDF where the user chooses ---------- */
 $("btn-save").onclick = async () => {
-  const name = (job.filename || "book").replace(/\.[^.]+$/, "") + "_bilingual.pdf";
+  const name = downloadName(job);
   $("savemsg").className = "msg";
   try {
     if (bridge) {
@@ -342,6 +343,7 @@ $("btn-reveal").onclick = () => { if (bridge && savedPath) bridge.reveal(savedPa
     hasKey = cfg.has_key; provider = cfg.provider || "";
     est = cfg.est_cny_per_page || {}; models = cfg.models || {}; defaultLimit = cfg.default_spend_limit ?? 10;
     if (!$("limit").value) $("limit").value = String(defaultLimit);
+    initLanguages(cfg.languages, cfg.default_target);
   } catch (e) { $("upmsg").className = "msg err"; $("upmsg").textContent = T.cannotReach; return; }
   updateKeyPanel(!hasKey); if (hasKey) updateUsing();
   try {  // reopen the newest book, if any

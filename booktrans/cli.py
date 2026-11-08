@@ -5,6 +5,7 @@ from pathlib import Path
 
 from .backends import BACKENDS, make_backend
 from .backends.base import BackendError
+from . import languages
 from .pipeline import MIN_TEXT_CHARS, default_output, translate_book
 from .readers import parse_range, read_book
 from .spend import DEFAULT_LIMIT_CNY, Meter, SpendLimitReached, rest_estimate
@@ -12,15 +13,21 @@ from .usage import Usage
 
 EXIT_SPEND_LIMIT = 3  # stopped at the spend limit; progress is saved
 
-DOC = """Translate an English book (PDF / EPUB / TXT) into a bilingual PDF.
+DOC = """Translate a book (PDF / EPUB / TXT) from one language into another with AI.
 
-Every English page is followed by a page with its Chinese translation.
+The source language is detected from the book (override it with --source). By default
+every original page is followed by a page with its translation (a bilingual PDF);
+--output-mode target-only writes the translation alone.
 
 Usage:
     python -m booktrans book.epub -o book_bilingual.pdf
+    python -m booktrans livre.pdf --target en      # French (detected) -> English
+    python -m booktrans book.pdf --target ja --output-mode target-only
     python -m booktrans book.pdf --pages 1-20      # try a few pages first
     python -m booktrans scan.pdf --ocr             # scanned PDF (no text layer)
-"""
+
+Languages (--source / --target): %s
+""" % ", ".join(f"{c} ({v[0]})" for c, v in languages.LANGUAGES.items())
 
 
 def parse_args():
@@ -28,6 +35,13 @@ def parse_args():
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("book", type=Path)
     ap.add_argument("-o", "--output", type=Path)
+    ap.add_argument("--source", default="auto", metavar="LANG",
+                    help="language of the book, e.g. fr; default auto = detect it")
+    ap.add_argument("--target", default=languages.DEFAULT_TARGET, metavar="LANG",
+                    help="language to translate into (default %(default)s)")
+    ap.add_argument("--output-mode", choices=languages.OUTPUT_MODES, default="bilingual",
+                    help="bilingual: each original page then its translation (default); "
+                         "target-only: only the translated pages")
     ap.add_argument("--backend", choices=list(BACKENDS), default="claude-cli",
                     help="claude-cli uses your Claude Code login (default); "
                          "api needs ANTHROPIC_API_KEY; qwen, qwen-intl, deepseek, "
@@ -40,7 +54,7 @@ def parse_args():
                     help="PDF input: typeset the translation as plain text pages "
                          "instead of copying each page's layout")
     ap.add_argument("--glossary", type=Path,
-                    help="text file of `English=中文` lines: fixed renderings of names and "
+                    help="text file of `original=translation` lines: fixed renderings of names and "
                          "terms (they override the automatic glossary)")
     ap.add_argument("--no-auto-glossary", action="store_true",
                     help="do not build the automatic glossary of repeated names")
@@ -72,6 +86,8 @@ def make_progress():
 def main():
     args = parse_args()
     try:
+        args.source = languages.check_source(args.source)
+        args.target = languages.check_target(args.target)
         run(args)
     except (ValueError, BackendError) as e:
         sys.exit(f"{e}\nProgress is saved; run the same command again to resume."
@@ -127,9 +143,14 @@ def run(args):
         print(f"Warning: {len(scanned)} of {len(idx)} pages have no text layer "
               "(scanned?). Re-run with --ocr to read them.", file=sys.stderr)
 
-    out = args.output or default_output(args.book, args.pages)
+    out = args.output or default_output(args.book, args.pages, args.output_mode, args.target)
+    # cache, OCR text and glossary sit next to the bilingual name whatever the mode, so
+    # changing only --output-mode re-uses every page already translated
+    state = args.output or default_output(args.book, args.pages)
+    lang = dict(source=args.source, target=args.target, output_mode=args.output_mode, state=state)
     if args.finish_partial:
-        translate_book(args.book, out, translator, pages=args.pages, flat=args.flat, only_cached=True)
+        translate_book(args.book, out, translator, pages=args.pages, flat=args.flat, only_cached=True,
+                       **lang)
         print(f"Done (translated pages only): {out}")
         return
     limit, last, show = args.max_spend, {}, make_progress()
@@ -140,12 +161,12 @@ def run(args):
 
     try:
         while True:
-            meter = Meter(limit, out.with_suffix(".spend.json"))  # the total is kept across runs
+            meter = Meter(limit, state.with_suffix(".spend.json"))  # the total is kept across runs
             try:
                 translate_book(args.book, out, translator, ocr_backend=ocr_backend, pages=args.pages,
                                redo=args.redo, flat=args.flat, progress=progress,
                                glossary_file=args.glossary, auto_glossary=not args.no_auto_glossary,
-                               meter=meter)
+                               meter=meter, **lang)
                 break
             except SpendLimitReached as e:
                 choice = decide(e, last, out)
@@ -153,7 +174,7 @@ def run(args):
                     limit = choice[1]
                 elif choice[0] == "finish":
                     translate_book(args.book, out, translator, pages=args.pages, flat=args.flat,
-                                   only_cached=True)
+                                   only_cached=True, **lang)
                     print(f"Done (translated pages only): {out}")
                     return
                 else:
