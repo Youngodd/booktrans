@@ -1,0 +1,8 @@
+O (whoami)
+O (query user 2>&1)
+O ((Get-ItemProperty 'HKLM:\SOFTWARE\WOW6432Node\Microsoft\EdgeUpdate\Clients\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}' -ErrorAction SilentlyContinue).pv)
+O (Get-ChildItem "$env:LOCALAPPDATA\Programs" -ErrorAction SilentlyContinue | Select -Expand Name)
+O (Get-LocalUser | Select Name,Enabled | Format-Table | Out-String)
+O (Get-Process explorer -IncludeUserName | Select UserName,Id | Format-Table | Out-String)
+O ($env:USERPROFILE + ' ' + $env:APPDATA)
+O ((Get-CimInstance Win32_Processor).Architecture)

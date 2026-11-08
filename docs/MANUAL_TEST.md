@@ -75,3 +75,6 @@ Costs: real-provider steps use "Preview 3 pages" or a short page range, a few ce
 
 | Date | Version | Windows | Tester | Failed steps | Notes |
 | --- | --- | --- | --- | --- | --- |
+| 2026-11-02 | 0.1.19 | Windows 11 ARM64 (UTM) | Claude Code | none run | Blocked: no guest agent/SSH in the VM, no screen capture. Baseline snapshot made. See docs/vm-test-results/2026-11-02/results.md |
+| 2026-11-08 | dev build 7669aea (from source) | macOS 27 arm64 | Claude Code | A5 on Mac (sidecar outlives `kill -9` shell; Windows job object not exercised); C24, C25 need a person | Auto run, fake backend: everything else in A3-A4, B7-B14, C16-C18, C20-C22, C26 passed; found 3 bugs (proxy env breaks shell key save, orphan sidecar on Mac, token in sidecar.log). See docs/vm-test-results/2026-11-08-mac/results.md |
+| 2026-11-08 | 0.1.19 | Windows 11 ARM64 (UTM) | Claude Code | none failed | Auto via guest agent, fake backend: A1-A5 (silent), C16-C18, C20-C22, C26, spend guard, E29 passed. Not run: B13/B14 (existing Credential Manager entry left untouched), B10-B11, E30, A6, D27-D28, GUI items (C24, C25). See docs/vm-test-results/2026-11-08-windows/results.md |
