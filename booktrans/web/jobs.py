@@ -46,10 +46,16 @@ class JobStore:
 
     def read(self, job_id):
         path = self.dir(job_id)
-        try:
-            return json.loads((path / "job.json").read_text(encoding="utf-8")) if path else None
-        except (OSError, ValueError):
+        if not path:
             return None
+        for attempt in range(50):  # Windows refuses to open the file for an instant while a writer replaces it
+            try:
+                return json.loads((path / "job.json").read_text(encoding="utf-8"))
+            except PermissionError:
+                time.sleep(0.02)
+            except (OSError, ValueError):
+                return None
+        return None
 
     def write(self, job_id, **fields):
         """Merge fields into job.json (atomically, so readers never see half a file)."""
