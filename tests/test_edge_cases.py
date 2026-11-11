@@ -821,7 +821,7 @@ def test_a_bad_glossary_file_fails_before_anything_is_paid_for(tmp_path):
 def test_glossary_file_entries_override_the_automatic_ones(tmp_path):
     from booktrans.pipeline import translate_book
     (tmp_path / "b.txt").write_text("Boyle met Boyle. Boyle spoke again to Boyle here.")
-    (tmp_path / "g.txt").write_text("Boyle=波义耳")
+    (tmp_path / "g.txt").write_text("Boyle=波义耳", encoding="utf-8")
     fb = FakeBackend()
     translate_book(tmp_path / "b.txt", tmp_path / "o.pdf", fb, glossary_file=tmp_path / "g.txt", source="en")
     assert any("Boyle = 波义耳" in c or "Boyle" in c for c in fb.calls)
