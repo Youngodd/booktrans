@@ -1,5 +1,6 @@
 """Command-line entry point: wires readers, OCR, translation and the writer."""
 import argparse
+import math
 import sys
 from pathlib import Path
 
@@ -28,6 +29,17 @@ Usage:
 
 Languages (--source / --target): %s
 """ % ", ".join(f"{c} ({v[0]})" for c, v in languages.LANGUAGES.items())
+
+
+def _limit(value):
+    """argparse type of --max-spend: 0 (no limit) or a positive, finite number."""
+    try:
+        n = float(value)
+    except ValueError:
+        raise argparse.ArgumentTypeError(f"{value!r} is not a number")
+    if not math.isfinite(n) or n < 0:
+        raise argparse.ArgumentTypeError("must be 0 (no limit) or a positive number")
+    return n
 
 
 def parse_args():
@@ -63,7 +75,7 @@ def parse_args():
     ap.add_argument("--ocr-backend", choices=list(BACKENDS),
                     help="backend for OCR (default: --backend)")
     ap.add_argument("--ocr-model", help="model for OCR (default: --model)")
-    ap.add_argument("--max-spend", type=float, default=DEFAULT_LIMIT_CNY, metavar="YUAN",
+    ap.add_argument("--max-spend", type=_limit, default=DEFAULT_LIMIT_CNY, metavar="YUAN",
                     help="stop and ask before spending more than this many yuan on the book "
                          "in total, across runs (default %(default)s; 0 = no limit). Prices "
                          "are estimates; see booktrans/spend.py")
@@ -121,6 +133,10 @@ def decide(e, last, out):
 
 
 def run(args):
+    if not args.book.is_file():
+        sys.exit(f"No such file: {args.book}")
+    if args.glossary and not args.glossary.is_file():
+        sys.exit(f"No such glossary file: {args.glossary}")
     usage = Usage()
     is_pdf = args.book.suffix.lower() == ".pdf"
 

@@ -94,7 +94,30 @@ def read_txt(path):
     return paginate([p.strip() for p in re.split(r"\n\s*\n", text) if p.strip()])
 
 
+def _pieces(text, limit):
+    """`text` cut into pieces of at most `limit` characters, at line breaks, then sentence
+    ends, then spaces, and only as a last resort in the middle of a word."""
+    out = []
+    while len(text) > limit:
+        window = text[:limit + 1]
+        cut = 0
+        for pattern in (r"\n", r"[。！？…]+[”’」』)]*|[.!?][\"'”’)]*\s", r"\s"):
+            found = [m.end() for m in re.finditer(pattern, window) if m.end() > limit // 4]
+            if found:
+                cut = found[-1]
+                break
+        cut = min(cut or limit, limit)
+        out.append(text[:cut].rstrip())
+        text = text[cut:].lstrip()
+    if text:
+        out.append(text)
+    return [p for p in out if p]
+
+
 def paginate(paras):
+    """Group paragraphs into pages of about CHARS_PER_PAGE characters. A paragraph longer than
+    a page (a text with one line break per line, or none) is cut so that no page is huge."""
+    paras = [q for p in paras for q in _pieces(p, CHARS_PER_PAGE)]
     pages, cur, size = [], [], 0
     for p in paras:
         if cur and size + len(p) > CHARS_PER_PAGE:
@@ -118,8 +141,10 @@ def read_book(path):
 def parse_range(spec, total):
     if not spec:
         return list(range(total))
-    a, _, b = spec.partition("-")
+    a, sep, b = spec.partition("-")
     try:
+        if sep and not b.strip():  # "5-" would silently mean page 5 only
+            raise ValueError
         start, end = int(a), int(b or a)
     except ValueError:
         raise ValueError(f"Invalid page range {spec!r} (use e.g. 5 or 1-20)")

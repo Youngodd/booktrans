@@ -70,14 +70,18 @@ class Meter:
 
     def __init__(self, limit=DEFAULT_LIMIT_CNY, path=None, prices=None):
         self.limit = float(limit or 0)
+        if not math.isfinite(self.limit) or self.limit < 0:  # nan would never trip the guard
+            raise ValueError(f"The spend limit must be 0 (no limit) or a positive number, not {limit!r}.")
         self.path = Path(path) if path else None
         self.prices = prices or PRICES
         self.spent = 0.0
         if self.path and self.path.exists():
             try:
-                self.spent = float(json.loads(self.path.read_text(encoding="utf-8"))["spent_cny"])
-            except (OSError, ValueError, KeyError):
-                pass
+                spent = float(json.loads(self.path.read_text(encoding="utf-8"))["spent_cny"])
+            except (OSError, ValueError, KeyError, TypeError):  # damaged file: start counting again
+                spent = 0.0
+            if math.isfinite(spent) and spent > 0:
+                self.spent = spent
 
     def cost(self, provider, kind, tokens, cost_usd=0.0):
         """Yuan for one call's token counts (or the CLI backend's reported dollars)."""

@@ -7,6 +7,9 @@ from pathlib import Path
 from .base import BackendError, LLMBackend
 
 
+TIMEOUT = 900  # seconds for one call; a hung process must not hang the whole job
+
+
 class ClaudeCLIBackend(LLMBackend):
     supports_vision = True
 
@@ -14,8 +17,14 @@ class ClaudeCLIBackend(LLMBackend):
         """Run `claude -p` with JSON output; record usage and return the text result."""
         if self.model:
             cmd += ["--model", self.model]
-        r = subprocess.run(cmd + ["--output-format", "json"],
-                           capture_output=True, text=True, **kw)
+        try:  # UTF-8 whatever the system locale is (a Chinese Windows would read cp936)
+            r = subprocess.run(cmd + ["--output-format", "json"], capture_output=True,
+                               encoding="utf-8", errors="replace", timeout=TIMEOUT, **kw)
+        except FileNotFoundError:
+            raise ValueError("The claude command was not found. Install Claude Code and sign in, "
+                             "or choose another backend (for example --backend api).") from None
+        except subprocess.TimeoutExpired:
+            raise BackendError(f"claude CLI did not answer within {TIMEOUT} seconds") from None
         try:
             data = json.loads(r.stdout)
         except ValueError:
@@ -24,7 +33,7 @@ class ClaudeCLIBackend(LLMBackend):
             msg = (data or {}).get("result") or r.stderr.strip() or r.stdout.strip()
             raise BackendError(f"claude CLI failed: {msg}")
         self.usage.record(data.get("usage") or {}, data.get("total_cost_usd"))
-        return data.get("result", "").strip()
+        return (data.get("result") or "").strip()
 
     def complete(self, system, user, max_tokens=4096):
         cmd = ["claude", "-p", "--tools", "", "--no-session-persistence",

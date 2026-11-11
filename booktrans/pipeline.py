@@ -142,9 +142,13 @@ def translate_book(book, out, translator, *, ocr_backend=None, pages=None, redo=
     source, target = languages.check_source(source), languages.check_target(target)
     languages.check_mode(output_mode)
     state = Path(state) if state else out
+    overrides = glossary_mod.parse_file(glossary_file) if glossary_file else {}  # a bad file fails now, not after the OCR
     is_pdf = book.suffix.lower() == ".pdf"
     all_pages = read_book(book)
     idx = parse_range(pages, len(all_pages))
+    if not idx:
+        raise ValueError("The book has no pages." if not all_pages else
+                         f"The page range {pages!r} is outside the book, which has {len(all_pages)} pages.")
     cache_path = state.with_suffix(".cache.json")
     if only_cached:
         cached = load_cache(cache_path)
@@ -186,8 +190,7 @@ def translate_book(book, out, translator, *, ocr_backend=None, pages=None, redo=
         except SpendLimitReached:  # keep the names already paid for
             glossary_mod.save(gloss_path, glossary)
             raise
-    if glossary_file:
-        glossary.update(glossary_mod.parse_file(glossary_file))
+    glossary.update(overrides)
     if glossary:
         glossary_mod.save(gloss_path, glossary)
 

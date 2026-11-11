@@ -76,7 +76,7 @@ def candidates(texts, min_count=2, max_terms=MAX_TERMS):
 def parse_file(path):
     """Read `English=中文` lines (also tab or comma separated); # starts a comment."""
     glossary = {}
-    with open(path, encoding="utf-8") as f:
+    with open(path, encoding="utf-8-sig") as f:  # Notepad adds a BOM
         for line in f:
             line = line.split("#", 1)[0].strip()
             parts = re.split(r"\s*[=\t,]\s*", line, maxsplit=1)

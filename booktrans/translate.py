@@ -5,6 +5,7 @@ import time
 from .backends.base import AuthError, BackendError
 from . import glossary as gloss
 from .languages import DEFAULT_TARGET
+from .layout import KEEP
 from .fsutil import read_json, write_json
 from .prompts import layout_prompt, system_prompt
 
@@ -45,10 +46,19 @@ def cache_key(i, target, layout=False):
     return key if target == DEFAULT_TARGET else f"{target}:{key}"
 
 
+class EmptyReply(BackendError):
+    """The model answered a request that had text in it with nothing."""
+
+
 def translate(backend, text, glossary=None, source="en", target=DEFAULT_TARGET):
     if not text.strip():
         return ""
-    return complete(backend, with_glossary(system_prompt(source, target), glossary, text), text, 4096)
+    system = with_glossary(system_prompt(source, target), glossary, text)
+    for _ in range(2):  # an empty answer is cached like a real one, so never accept it
+        out = complete(backend, system, text, 4096)
+        if out.strip():
+            return out
+    raise EmptyReply("The model returned an empty translation. Press Continue to try again.")
 
 
 def translate_blocks(backend, blocks, ctx=("", ""), glossary=None, source="en", target=DEFAULT_TARGET):
@@ -65,8 +75,14 @@ def translate_blocks(backend, blocks, ctx=("", ""), glossary=None, source="en", 
         parts = re.split(r"(?m)^\[(\d+)\][ \t]*", out)  # ['', '1', 'txt', '2', ...]
         got = {int(parts[k]): parts[k + 1].strip() for k in range(1, len(parts) - 1, 2)}
         if sorted(got) == list(range(1, len(blocks) + 1)):
-            return [got[n].replace("**", "") for n in range(1, len(blocks) + 1)]
-    return [translate(backend, b["text"], glossary, source, target).replace("**", "") for b in blocks]
+            return [got[n].replace("**", "").strip() or KEEP for n in range(1, len(blocks) + 1)]
+    out = []
+    for b in blocks:
+        try:
+            out.append(translate(backend, b["text"], glossary, source, target).replace("**", "").strip() or KEEP)
+        except EmptyReply:
+            out.append(KEEP)  # nothing came back: leave the original in place, do not erase it
+    return out
 
 
 def translate_all(backend, idx, pages, layout, ctx, cache, cache_path, redo=(), progress=None,

@@ -50,7 +50,8 @@ class JobStore:
             return None
         for attempt in range(50):  # Windows refuses to open the file for an instant while a writer replaces it
             try:
-                return json.loads((path / "job.json").read_text(encoding="utf-8"))
+                job = json.loads((path / "job.json").read_text(encoding="utf-8"))
+                return job if isinstance(job, dict) else None
             except PermissionError:
                 time.sleep(0.02)
             except (OSError, ValueError):
