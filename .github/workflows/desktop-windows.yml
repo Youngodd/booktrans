@@ -42,6 +42,7 @@ jobs:
         shell: bash
         run: |
           python -m PyInstaller --noconfirm --onedir --windowed --name BookTranslator \
+            --icon assets/icon/BookTranslator.ico \
             --add-data "booktrans/web/static;booktrans/web/static" \
             --collect-submodules uvicorn --collect-submodules booktrans --collect-submodules webview \
             --hidden-import fitz --hidden-import keyring.backends.Windows --hidden-import clr \

@@ -16,6 +16,7 @@ DisableProgramGroupPage=yes
 PrivilegesRequired=lowest
 OutputDir=..\installer
 OutputBaseFilename=BookTranslator-Setup-{#AppVersion}
+SetupIconFile=..\assets\icon\BookTranslator.ico
 Compression=lzma2
 SolidCompression=yes
 ArchitecturesAllowed=x64compatible

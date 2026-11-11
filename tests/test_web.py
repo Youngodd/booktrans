@@ -446,3 +446,14 @@ def test_a_token_with_a_non_ascii_signature_is_refused_not_an_error():
     from booktrans.web import auth
     t = auth.make_token("k", "openid-1", now=1000)
     assert auth.read_token("k", t[:-1] + "é", now=2000) is None
+
+
+def test_pages_carry_the_app_icon(tmp_path):
+    from fastapi.testclient import TestClient
+    from booktrans.web.app import create_app
+    client = TestClient(create_app(tmp_path, executor=None or __import__("concurrent.futures").futures.ThreadPoolExecutor(1)))
+    for lang in ("en", "zh"):
+        html = client.get(f"/{lang}").text
+        assert 'rel="icon"' in html and "/static/icon-64.png" in html
+    for f in ("icon.svg", "icon-64.png", "icon-256.png"):
+        assert client.get(f"/static/{f}").status_code == 200

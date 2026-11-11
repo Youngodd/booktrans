@@ -89,6 +89,8 @@ em, i { font-style: normal; }
             padding-block: var(--sp-3); }
 .masthead .wrap { display: flex; justify-content: space-between; align-items: center; gap: var(--sp-3); flex-wrap: wrap; }
 .brand { font: 600 var(--fs-lg) / 1.2 var(--display); letter-spacing: -.01em; }
+.brand { display: inline-flex; align-items: center; gap: .5rem; }
+.brand .logo { width: 28px; height: 28px; border-radius: 6px; flex: none; }
 nav { display: flex; align-items: center; gap: var(--sp-1); flex-wrap: wrap; }
 nav a, nav button {
   display: inline-flex; align-items: center; gap: var(--sp-1); min-height: 2.25rem; padding: 0 var(--sp-3);
