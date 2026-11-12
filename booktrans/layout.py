@@ -14,6 +14,36 @@ def _sep(a, b):
     return "" if _CJK.match(a[-1:]) and _CJK.match(b[:1]) else " "
 
 
+def _spans(ln):
+    """The text spans of a pymupdf line that hold something, each marked with "sp": a space
+    belongs before it.
+
+    Some PDFs (a web page printed from a browser) keep every space as a span of its own, and
+    some have no space at all, only a gap between two words. Both are kept as a space here;
+    dropping blank spans, as a plain filter would, runs the words together ("HongKong").
+    Two CJK characters are never given a space: Chinese and Japanese are written without.
+    """
+    out, space = [], False
+    for s in ln["spans"]:
+        if not s["text"].strip():
+            space = space or bool(s["text"])
+            continue
+        s = dict(s)
+        s["sp"] = False
+        if out:
+            gap = s["bbox"][0] - out[-1]["bbox"][2] > 0.25 * s["size"]
+            cjk = _CJK.match(out[-1]["text"].rstrip()[-1:]) and _CJK.match(s["text"].lstrip()[:1])
+            s["sp"] = (space or gap) and not cjk
+        out.append(s)
+        space = False
+    return out
+
+
+def _text(spans):
+    """The text of `spans` (from _spans) as one line, single-spaced and trimmed."""
+    return " ".join("".join((" " if s["sp"] else "") + s["text"] for s in spans).split())
+
+
 def _continued(groups, style, x0, x1, y0, y1):
     """The block a text line continues as a wrapped line, or None if it starts a new block.
 
@@ -52,7 +82,7 @@ def extract_blocks(page):
             continue
         groups, cur = [], None
         for ln in b["lines"]:
-            spans = [s for s in ln["spans"] if s["text"].strip()]
+            spans = _spans(ln)
             if not spans:
                 continue
             segs = [[spans[0]]]
@@ -66,7 +96,7 @@ def extract_blocks(page):
                 dom = max(seg, key=lambda s: len(s["text"].strip()))
                 # size and weight only: italic or link-coloured lines stay in their paragraph
                 style = (round(dom["size"] * 2), bool(dom["flags"] & 16))
-                text = "".join(s["text"] for s in seg).strip()
+                text = _text(seg)
                 x0 = min(s["bbox"][0] for s in seg)
                 x1 = max(s["bbox"][2] for s in seg)
                 y0 = min(s["bbox"][1] for s in seg)
@@ -116,7 +146,7 @@ def _scan_rows(page):
         if b["type"] != 0:
             continue
         for ln in b["lines"]:
-            spans = [s for s in ln["spans"] if s["text"].strip()]
+            spans = _spans(ln)
             if spans:
                 dom = max(spans, key=lambda s: len(s["text"].strip()))
                 chunks.append({"bbox": list(ln["bbox"]), "size": dom["size"],
@@ -124,7 +154,7 @@ def _scan_rows(page):
                                "words": [(w["bbox"][0], w["bbox"][2], w["text"].strip())
                                          for w in spans],
                                "bold": bool(dom["flags"] & 16) or "bold" in dom["font"].lower(),
-                               "text": "".join(s["text"] for s in spans).strip()})
+                               "text": _text(spans)})
     if not chunks:
         return [], 0
     em = _median([c["size"] for c in chunks])
