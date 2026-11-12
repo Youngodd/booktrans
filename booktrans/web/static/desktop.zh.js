@@ -37,6 +37,13 @@ const T = {
   uploadFailed: "上传失败", readFailed: "无法读取这个文件",
   namesCollecting: "正在整理译名…",
   namesIntro: "改一改不满意的译名，留空则不固定。", namesNone: "没有需要固定的译名。",
+  namesApply: "应用到已翻译的页", namesClose: "关闭",
+  namesReviewIntro: "检查翻译用到的译名。可以直接改，也可以下载译名表、修改后再导入；然后把修改应用到已翻译的页。",
+  namesSaved: (path) => "译名表已保存：" + path, importedOk: (n) => "已导入 " + n + " 条译名。",
+  noChanges: "你的修改没有影响任何已翻译的页。",
+  applyConfirm: (n, total, cost) => "已翻译的 " + total + " 页中，有 " + n + " 页出现了被修改的译名，将重新翻译" +
+    (cost ? "（约 ¥" + cost.toFixed(2) + "，粗略估算，按你的 key 计费）" : "") + "。",
+  applyGo: (n) => "重新翻译这 " + n + " 页",
   tickBox: "请先勾选确认框。", limitNumber: "费用上限请输入数字。",
   raiseErr: (spent) => "请输入大于已花费 ¥" + spent + " 的数字，或 0。",
   spent: (v) => "  ·  已花费 ¥" + v,

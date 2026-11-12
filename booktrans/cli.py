@@ -7,9 +7,10 @@ from pathlib import Path
 from .backends import BACKENDS, make_backend
 from .backends.base import BackendError
 from . import languages
-from .pipeline import MIN_TEXT_CHARS, default_output, translate_book
+from . import glossary as glossary_mod
+from .pipeline import MIN_TEXT_CHARS, default_output, draft_glossary, glossary_changes, glossary_path, translate_book
 from .readers import parse_range, read_book
-from .spend import DEFAULT_LIMIT_CNY, Meter, SpendLimitReached, rest_estimate
+from .spend import DEFAULT_LIMIT_CNY, Meter, SpendLimitReached, est_cny_per_page, rest_estimate
 from .usage import Usage
 
 EXIT_SPEND_LIMIT = 3  # stopped at the spend limit; progress is saved
@@ -26,6 +27,11 @@ Usage:
     python -m booktrans book.pdf --target ja --output-mode target-only
     python -m booktrans book.pdf --pages 1-20      # try a few pages first
     python -m booktrans scan.pdf --ocr             # scanned PDF (no text layer)
+
+Check the names early, fix them, and apply the fixes to pages already translated:
+    python -m booktrans book.pdf --export-glossary names.txt    # collect names, write the file, stop
+    (edit names.txt: one `original=translation` per line)
+    python -m booktrans book.pdf --glossary names.txt --apply-glossary
 
 Languages (--source / --target): %s
 """ % ", ".join(f"{c} ({v[0]})" for c, v in languages.LANGUAGES.items())
@@ -68,6 +74,12 @@ def parse_args():
     ap.add_argument("--glossary", type=Path,
                     help="text file of `original=translation` lines: fixed renderings of names and "
                          "terms (they override the automatic glossary)")
+    ap.add_argument("--export-glossary", type=Path, metavar="FILE",
+                    help="collect the book's names, write them to FILE as `original=translation` lines "
+                         "for you to check and edit, and stop (only the names are paid for)")
+    ap.add_argument("--apply-glossary", action="store_true",
+                    help="after editing the glossary (--glossary FILE), translate again only the pages "
+                         "already translated whose names changed; the others keep their translation")
     ap.add_argument("--no-auto-glossary", action="store_true",
                     help="do not build the automatic glossary of repeated names")
     ap.add_argument("--ocr", action="store_true",
@@ -132,7 +144,51 @@ def decide(e, last, out):
             return ("cancel",)
 
 
+def export_glossary(args, translator, state):
+    """Collect the names of the book, write them to --export-glossary, and stop."""
+    meter = Meter(args.max_spend, state.with_suffix(".spend.json"))
+    try:
+        found = draft_glossary(args.book, translator, glossary_path(state, args.target), pages=args.pages,
+                               meter=meter, source=args.source, target=args.target)
+    except SpendLimitReached as e:
+        print(f"Spend limit reached while collecting names: ¥{e.spent:.2f} of ¥{e.limit:.2f}.", file=sys.stderr)
+        sys.exit(EXIT_SPEND_LIMIT)
+    if args.glossary:
+        found.update(glossary_mod.parse_file(args.glossary))
+    text = glossary_mod.dumps(found)
+    if text == glossary_mod.HEADER:
+        print("No names to fix were found in this book.")
+        return
+    args.export_glossary.write_text(text, encoding="utf-8")
+    print(f"Wrote {sum(1 for zh in found.values() if zh)} names to {args.export_glossary}.\n"
+          "Edit it, then: python -m booktrans <book> --glossary FILE --apply-glossary")
+
+
+def confirm_apply(args, out, state):
+    """Say which pages the edited glossary changes and what translating them again costs.
+    Returns False when there is nothing to do or the user declines."""
+    found = glossary_changes(args.book, out, pages=args.pages, flat=args.flat, target=args.target,
+                             glossary_file=args.glossary, state=state)
+    n = len(found["pages"])
+    if not found["translated"]:
+        print("Nothing has been translated yet, so there is nothing to apply the glossary to.")
+        return False
+    if not n:
+        print(f"None of the {found['translated']} translated pages is affected by the glossary changes.")
+        return False
+    rate = est_cny_per_page().get(args.backend)
+    cost = f", about ¥{n * rate:.2f} (a rough estimate)" if rate else ""
+    shown = ", ".join(map(str, found["pages"][:15])) + (" ..." if n > 15 else "")
+    print(f"{n} of {found['translated']} translated pages mention a changed name and will be translated "
+          f"again{cost}: pages {shown}")
+    if sys.stdin.isatty():
+        return input("Translate them again? [y/N] ").strip().lower() in ("y", "yes")
+    return True
+
+
 def run(args):
+    if args.apply_glossary and args.finish_partial:
+        sys.exit("--apply-glossary translates pages again; it cannot be combined with --finish-partial.")
     if not args.book.is_file():
         sys.exit(f"No such file: {args.book}")
     if args.glossary and not args.glossary.is_file():
@@ -164,6 +220,13 @@ def run(args):
     # changing only --output-mode re-uses every page already translated
     state = args.output or default_output(args.book, args.pages)
     lang = dict(source=args.source, target=args.target, output_mode=args.output_mode, state=state)
+    if args.export_glossary:
+        export_glossary(args, translator, state)
+        return
+    if args.apply_glossary:
+        if not confirm_apply(args, out, state):
+            return
+        lang["refresh_glossary"] = True
     if args.finish_partial:
         translate_book(args.book, out, translator, pages=args.pages, flat=args.flat, only_cached=True,
                        **lang)
@@ -190,7 +253,7 @@ def run(args):
                     limit = choice[1]
                 elif choice[0] == "finish":
                     translate_book(args.book, out, translator, pages=args.pages, flat=args.flat,
-                                   only_cached=True, **lang)
+                                   only_cached=True, **{k: v for k, v in lang.items() if k != "refresh_glossary"})
                     print(f"Done (translated pages only): {out}")
                     return
                 else:

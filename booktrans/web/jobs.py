@@ -278,7 +278,8 @@ def run_job(root, job_id, api_key, backend_factory=default_backend, provider="ap
                        progress=progress, auto_glossary=job.get("auto_glossary", True),
                        meter=meter, only_cached=job.get("only_cached", False),
                        source=job.get("source", "auto"), target=job.get("target", DEFAULT_TARGET),
-                       output_mode=job.get("output_mode", "bilingual"))
+                       output_mode=job.get("output_mode", "bilingual"),
+                       refresh_glossary=job.get("refresh_glossary", False))
         store.write(job_id, state="done", stage="done", usage=translator.usage.as_dict(),
                     finished=time.time(), spent_cny=round(meter.spent, 4),
                     partial=bool(job.get("only_cached", False)))

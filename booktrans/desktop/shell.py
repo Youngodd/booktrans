@@ -234,6 +234,25 @@ class Api:
         return {"ok": True, "path": dest}
 
 
+    def save_glossary(self, job_id, suggested_name):
+        """Ask where to save the book's glossary (a text file to edit), then write it there."""
+        import webview
+        dest = self._window.create_file_dialog(webview.SAVE_DIALOG, save_filename=suggested_name,
+                                              file_types=("Text (*.txt)",))
+        if not dest:
+            return {"ok": False}
+        dest = dest if isinstance(dest, str) else dest[0]
+        r = self._sidecar.http.get(f"/api/jobs/{job_id}/glossary/download")
+        if r.status_code != 200:  # say why (nothing to save yet), and write nothing
+            try:
+                why = r.json().get("detail", "")
+            except ValueError:
+                why = ""
+            return {"ok": False, "error": why}
+        with open(dest, "wb") as f:
+            f.write(r.content)
+        return {"ok": True, "path": dest}
+
     def reveal(self, path):
         """Show a saved file in the system file manager."""
         if os.name == "nt":

@@ -52,6 +52,8 @@ lives in `booktrans/languages.py`.
 | `--flat` | PDF input: plain-text translated pages instead of the original layout |
 | `--ocr` | OCR scanned pages (needs a vision-capable backend) |
 | `--ocr-backend`, `--ocr-model` | use a different backend / model for OCR |
+| `--export-glossary names.txt` | collect the book's names, write them to a text file for you to check, and stop (only the names are paid for) |
+| `--apply-glossary` | translate again only the already-translated pages whose names you changed in the glossary |
 
 Progress is cached in `<output>.cache.json`, so an interrupted run resumes
 without re-paying for finished pages. Entries are keyed by target language (Simplified
@@ -59,6 +61,34 @@ Chinese keeps the plain keys of earlier versions), and the glossary is kept per 
 (`<output>.glossary.<lang>.json`), so switching the target never reuses the wrong text.
 With the default file names, running again with only `--output-mode` changed rebuilds
 the PDF from the cache and spends nothing.
+
+### Check the names early, then fix the pages already translated
+
+A name translated two ways, or wrongly, is easiest to catch before the whole book is paid for:
+
+```
+python -m booktrans book.pdf --export-glossary names.txt     # collects names, writes the file, stops
+# edit names.txt: one `original=translation` per line, # starts a comment, a name left out is not fixed
+python -m booktrans book.pdf --glossary names.txt            # translate with your names
+```
+
+Later, after reading the result, edit the file again and apply it to the pages already translated:
+
+```
+python -m booktrans book.pdf --glossary names.txt --apply-glossary
+```
+
+It says which pages mention a name whose rendering changed (or was added or removed), what
+translating them again costs (a rough estimate), and asks before spending. Only those pages are
+translated again and the PDF is rebuilt; every other page keeps its translation. The spend limit
+applies. Each translated page remembers the glossary entries it was translated with
+(`<output>.glossary-used.json`); a book translated by an older version has no such record, so
+there every page that mentions a name in the glossary counts as possibly affected.
+
+In the desktop app the names step has **Download names** and **Import edited file** (check the names
+before the book is translated), and a finished book has **Review names**: edit a rendering or import a
+file, **Apply to translated pages** shows the number of pages and the cost, and one more click
+translates them again.
 
 ### Language detection and special characters
 
@@ -162,6 +192,11 @@ API: `GET /api/config` (includes `languages`, the list for the pickers, and `def
 `POST /api/jobs/{id}/start` (`api_key`, `pages`, `preview`, `ocr`, `source` (`auto` or a code),
 `target` (default `zh-CN`), `output_mode` (`bilingual` or `target-only`); an unknown code is a 400) → `GET /api/jobs/{id}` (state, stage, done/total) →
 `GET /api/jobs/{id}/download`; `DELETE /api/jobs/{id}` removes the files.
+The glossary: `GET /api/jobs/{id}/glossary/download` (an editable `original=translation` text file),
+`POST .../glossary/import` (`{"text": ...}`; a line that cannot be read is a 400 that names it and nothing is
+saved), `GET .../glossary/changes` (how many translated pages the edits affect and the estimated cost; spends
+nothing), then `POST .../start` with `"refresh_glossary": true` to translate just those pages again. All of them
+answer 409 while the job runs.
 
 ### Deploying
 

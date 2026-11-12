@@ -205,9 +205,76 @@ $("file").addEventListener("change", () => {
 });
 
 /* ---------- glossary review ---------- */
+const SKIP_LABEL = $("btn-names-skip").textContent;  // "Skip" before translating, "Close" when reviewing
+function fillNames(entries) {
+  $("names").innerHTML = "";
+  for (const e of entries) {
+    const tr = document.createElement("tr"), a = document.createElement("td"), b = document.createElement("td"), inp = document.createElement("input");
+    a.textContent = e.term; inp.type = "text"; inp.value = e.zh; inp.dataset.term = e.term; b.appendChild(inp);
+    tr.append(a, b); $("names").appendChild(tr);
+  }
+}
+function namesMsg(text, err) { $("namesmsg").className = "msg" + (err ? " err" : ""); $("namesmsg").textContent = text; }
+async function saveNames() {  // the table as the user left it becomes the glossary
+  const entries = {}; document.querySelectorAll("#names input").forEach((i) => { entries[i.dataset.term] = i.value; });
+  await api("/api/jobs/" + job.id + "/glossary", json("PUT", { entries }));
+}
+function glossaryFileName() {
+  return (job.filename || "book").replace(/\.[^.]*$/, "") + "_glossary_" + ($("target").value || "zh-CN") + ".txt";
+}
+$("btn-names-download").onclick = async () => {  // save the glossary as a text file the user can edit
+  try {
+    await saveNames();
+    if (bridge && bridge.save_glossary) {
+      const r = await bridge.save_glossary(job.id, glossaryFileName());
+      if (r.ok) namesMsg(T.namesSaved(r.path)); else if (r.error) namesMsg(r.error, true);
+    } else {
+      const r = await fetch("/api/jobs/" + job.id + "/glossary/download", { headers: { "X-Booktrans-Token": token } });
+      if (!r.ok) { namesMsg((await r.json()).detail || "", true); return; }
+      const a = document.createElement("a"); a.href = URL.createObjectURL(await r.blob()); a.download = glossaryFileName(); a.click();
+    }
+  } catch (e) { namesMsg(e.message, true); }
+};
+$("btn-names-import").onclick = () => $("names-file").click();
+$("names-file").onchange = async () => {  // an edited glossary file replaces the renderings
+  const f = $("names-file").files[0]; $("names-file").value = "";
+  if (!f) return;
+  try {
+    const r = await api("/api/jobs/" + job.id + "/glossary/import", json("POST", { text: await f.text() }));
+    fillNames((await api("/api/jobs/" + job.id + "/glossary")).entries);
+    applyPages = 0; $("btn-names-apply").textContent = T.namesApply;
+    namesMsg(T.importedOk(r.entries));
+  } catch (e) { namesMsg(e.message, true); }
+};
+let applyPages = 0;  // pages the last check found; set once the user has seen the cost
+$("names").oninput = () => { applyPages = 0; $("btn-names-apply").textContent = T.namesApply; };
+$("btn-names-apply").onclick = async () => {
+  if (applyPages) { applyPages = 0; show("step-names", false); begin(!!job.preview, { refresh_glossary: true }); return; }
+  try {
+    await saveNames();
+    const ch = await api("/api/jobs/" + job.id + "/glossary/changes");
+    if (!ch.pages) { namesMsg(T.noChanges); return; }
+    applyPages = ch.pages;
+    namesMsg(T.applyConfirm(ch.pages, ch.translated, ch.est_cny));
+    $("btn-names-apply").textContent = T.applyGo(ch.pages);
+  } catch (e) { namesMsg(e.message, true); }
+};
+async function reviewDone() {  // after a translation: check the names it used and apply fixes to the pages
+  show("step-setup", false); show("step-names", true);
+  for (const id of ["btn-names-go", "btn-names-skip"]) show(id, false);
+  show("btn-names-download", true); show("btn-names-import", true); show("btn-names-apply", true);
+  applyPages = 0; $("btn-names-apply").textContent = T.namesApply;
+  $("names").innerHTML = ""; namesMsg(T.namesReviewIntro);
+  try { fillNames((await api("/api/jobs/" + job.id + "/glossary")).entries); } catch (e) { namesMsg(e.message, true); }
+  $("btn-names-skip").textContent = T.namesClose; show("btn-names-skip", true);
+  $("btn-names-skip").onclick = () => show("step-names", false);
+}
+$("btn-names-review").onclick = reviewDone;
 async function reviewNames(preview) {
   show("step-setup", false); show("step-names", true);
   $("names").innerHTML = ""; show("btn-names-go", false); show("btn-names-skip", false);
+  for (const id of ["btn-names-download", "btn-names-import", "btn-names-apply"]) show(id, false);
+  $("btn-names-skip").textContent = SKIP_LABEL;
   $("namesmsg").className = "msg"; $("namesmsg").textContent = T.namesCollecting;
   try {
     await api("/api/jobs/" + job.id + "/glossary/draft", json("POST", Object.assign({ pages: $("pages").value, preview, model: currentModels().model }, languageFields())));
@@ -215,15 +282,11 @@ async function reviewNames(preview) {
     do { await new Promise((r) => setTimeout(r, 1500)); g = await api("/api/jobs/" + job.id + "/glossary"); } while (g.state === "building");
     if (g.state === "failed") throw new Error(g.error || "failed");
     $("namesmsg").textContent = g.entries.length ? T.namesIntro : T.namesNone;
-    for (const e of g.entries) {
-      const tr = document.createElement("tr"), a = document.createElement("td"), b = document.createElement("td"), inp = document.createElement("input");
-      a.textContent = e.term; inp.type = "text"; inp.value = e.zh; inp.dataset.term = e.term; b.appendChild(inp);
-      tr.append(a, b); $("names").appendChild(tr);
-    }
+    fillNames(g.entries);
     show("btn-names-go", true); show("btn-names-skip", true);
+    if (g.entries.length) { show("btn-names-download", true); show("btn-names-import", true); }  // check them before paying for the book
     $("btn-names-go").onclick = async () => {
-      const entries = {}; document.querySelectorAll("#names input").forEach((i) => { entries[i.dataset.term] = i.value; });
-      try { await api("/api/jobs/" + job.id + "/glossary", json("PUT", { entries })); } catch (e) { $("namesmsg").className = "msg err"; $("namesmsg").textContent = e.message; return; }
+      try { await saveNames(); } catch (e) { namesMsg(e.message, true); return; }
       show("step-names", false); begin(preview);
     };
     $("btn-names-skip").onclick = () => { show("step-names", false); begin(preview); };
@@ -293,6 +356,7 @@ function render(j) {
   show("btn-cancel", active); $("btn-cancel").disabled = false;
   show("btn-continue", j.state === "paused" || j.state === "failed");
   show("btn-changekey", j.state === "failed");  // a failed book is often a key problem: one click to the key
+  show("btn-names-review", j.state === "done");
   show("btn-save", j.state === "done"); show("btn-reveal", !!savedPath && j.state === "done");
   show("btn-again", !active); show("btn-delete", !active);
   show("step-setup", false);

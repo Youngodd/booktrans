@@ -11,7 +11,7 @@ from .layout import collect_layout, render_layout_page
 from .ocr import ocr_scanned_pages
 from .readers import parse_range, read_book
 from .spend import Metered, NoCalls, SpendLimitReached
-from .translate import cache_key, load_cache, translate_all
+from .translate import cache_key, load_cache, stale_positions, translate_all
 from .writer import make_pdf
 
 class Cancelled(Exception):
@@ -36,6 +36,41 @@ def glossary_path(state, target=languages.DEFAULT_TARGET):
     if target == languages.DEFAULT_TARGET:
         return state.with_suffix(".glossary.json")
     return state.with_suffix(f".glossary.{target}.json")
+
+
+def used_path(state):
+    """The file that records, per translated page, the glossary entries it was translated with."""
+    return Path(state).with_suffix(".glossary-used.json")
+
+
+def glossary_changes(book, out, *, pages=None, flat=False, target=languages.DEFAULT_TARGET,
+                     glossary_file=None, state=None):
+    """The pages already translated that the glossary, as it is now, would change.
+
+    Returns {"pages": [page numbers, 1-based], "translated": how many pages are cached}. Nothing
+    is paid for and nothing is written: it compares each cached page's recorded glossary
+    entries with the current glossary (`<state>.glossary.json`, plus `glossary_file`).
+    """
+    book, out = Path(book), Path(out)
+    target = languages.check_target(target)
+    state = Path(state) if state else out
+    all_pages = read_book(book)
+    idx = parse_range(pages, len(all_pages))
+    texts = [all_pages[i] for i in idx]
+    is_pdf = book.suffix.lower() == ".pdf"
+    scanned = [n for n, t in enumerate(texts) if len(t.strip()) < MIN_TEXT_CHARS] if is_pdf else []
+    ocr_cache = load_cache(state.with_suffix(".ocr.json"))
+    for n in scanned:
+        texts[n] = ocr_cache.get(str(idx[n]), texts[n])
+    layout = {} if not is_pdf or flat else collect_layout(book, idx, skip=scanned)[0]
+    glossary = glossary_mod.load(glossary_path(state, target))
+    if glossary_file:
+        glossary.update(glossary_mod.parse_file(glossary_file))
+    cache = load_cache(state.with_suffix(".cache.json"))
+    stale = stale_positions(idx, texts, layout, cache, load_cache(used_path(state)), glossary, target)
+    translated = sum(1 for n, i in enumerate(idx)
+                     if cache_key(i, target, layout=n in layout) in cache)
+    return {"pages": [idx[n] + 1 for n in stale], "translated": translated}
 
 
 def detect_book_language(book, sample=12):
@@ -109,7 +144,7 @@ def draft_glossary(book, translator, glossary_path, *, pages=None, progress=None
 def translate_book(book, out, translator, *, ocr_backend=None, pages=None, redo=None,
                    flat=False, progress=None, glossary_file=None, auto_glossary=True,
                    meter=None, only_cached=False, source="auto", target=languages.DEFAULT_TARGET,
-                   output_mode="bilingual", state=None):
+                   output_mode="bilingual", state=None, refresh_glossary=False):
     """Translate `book` into the PDF `out`; returns `out`.
 
     translator    an LLMBackend that translates
@@ -122,6 +157,9 @@ def translate_book(book, out, translator, *, ocr_backend=None, pages=None, redo=
     target        language code to translate into (see languages.LANGUAGES), default zh-CN
     output_mode   "bilingual": each original page then its translation (default);
                   "target-only": only the translation
+    refresh_glossary  translate again the cached pages whose glossary entries have changed since
+                  they were translated (after editing the glossary); the other pages and the
+                  automatic glossary are left alone, so only those pages are paid for
     state         the file whose name the cache, OCR text and glossary files are built from
                   (default `out`); keep it the same across output modes to share the cache
     progress      progress(stage, done, total) with stage "scan", "ocr", "glossary",
@@ -141,6 +179,9 @@ def translate_book(book, out, translator, *, ocr_backend=None, pages=None, redo=
     book, out = Path(book), Path(out)
     source, target = languages.check_source(source), languages.check_target(target)
     languages.check_mode(output_mode)
+    if refresh_glossary and only_cached:
+        raise ValueError("Re-translating pages and finishing without spending cannot be combined.")
+    auto_glossary = auto_glossary and not refresh_glossary  # only the pages that changed are paid for
     state = Path(state) if state else out
     overrides = glossary_mod.parse_file(glossary_file) if glossary_file else {}  # a bad file fails now, not after the OCR
     is_pdf = book.suffix.lower() == ".pdf"
@@ -197,7 +238,9 @@ def translate_book(book, out, translator, *, ocr_backend=None, pages=None, redo=
     cache = load_cache(cache_path)
     redo = set(parse_range(redo, len(all_pages))) if redo else set()
     translations = translate_all(translator, idx, texts, layout, ctx,
-                                 cache, cache_path, redo, progress, glossary, source, target)
+                                 cache, cache_path, redo, progress, glossary, source, target,
+                                 used=load_cache(used_path(state)), used_path=used_path(state),
+                                 refresh=refresh_glossary)
 
     original = None
     if is_pdf:  # keep the original page layout; a page range needs a trimmed copy

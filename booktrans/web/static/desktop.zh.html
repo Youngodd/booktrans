@@ -111,6 +111,10 @@
     <p class="msg" id="namesmsg"></p>
     <div class="names-box"><table class="names" id="names"></table></div>
     <div class="actions">
+      <button class="secondary hidden" id="btn-names-download">下载译名表</button>
+      <button class="secondary hidden" id="btn-names-import">导入修改后的文件</button>
+      <input type="file" id="names-file" accept=".txt,text/plain" class="hidden">
+      <button id="btn-names-apply" class="solid hidden">应用到已翻译的页</button>
       <button id="btn-names-go" class="solid hidden">使用这些译名并翻译</button>
       <button class="secondary hidden" id="btn-names-skip">跳过</button>
     </div>
@@ -136,6 +140,7 @@
       <button class="secondary hidden" id="btn-cancel">取消</button>
       <button class="secondary hidden" id="btn-continue">继续</button>
       <button class="secondary hidden" id="btn-changekey">更换 API key</button>
+      <button class="secondary hidden" id="btn-names-review">检查译名</button>
       <button class="secondary hidden" id="btn-save">保存 PDF</button>
       <button class="secondary hidden" id="btn-reveal">打开所在文件夹</button>
       <button class="secondary hidden" id="btn-again">修改设置</button>

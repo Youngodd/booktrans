@@ -73,16 +73,73 @@ def candidates(texts, min_count=2, max_terms=MAX_TERMS):
     return [(t, example[t]) for t in terms]
 
 
+_COMMENT = re.compile(r"(?:^|\s)#")  # a # that starts the line or follows a space; "C#" is not a comment
+HEADER = ("# Book Translator glossary: one `original=translation` per line.\n"
+          "# Edit it, then load it with --glossary FILE (or import it in the app).\n")
+
+
+def _split(line):
+    """(term, rendering) of one line: split at the first `=`, else at a tab or comma."""
+    if "=" in line:
+        term, _, zh = line.partition("=")
+    else:
+        parts = re.split(r"\s*[\t,]\s*", line, maxsplit=1)
+        term, zh = (parts + [""])[:2]
+    return term.strip(), zh.strip()
+
+
+def parse_text(text, strict=False):
+    """The entries of a glossary text: `original=translation` lines, # starts a comment.
+
+    Lenient (the default) skips lines it cannot read. With strict=True such a line raises a
+    ValueError that names it, so an uploaded file with a typo is reported, never half-read.
+    """
+    glossary = {}
+    for n, raw in enumerate(text.splitlines(), 1):
+        line = _COMMENT.split(raw, maxsplit=1)[0].strip()
+        if not line:
+            continue
+        term, zh = _split(line)
+        if term and zh:
+            if strict:
+                check_entry(term, zh, f"Line {n}: ")
+            glossary[term] = zh
+        elif strict:
+            raise ValueError(f"Line {n}: expected `original=translation`, got {raw.strip()[:60]!r}.")
+    return glossary
+
+
 def parse_file(path):
     """Read `English=中文` lines (also tab or comma separated); # starts a comment."""
-    glossary = {}
     with open(path, encoding="utf-8-sig") as f:  # Notepad adds a BOM
-        for line in f:
-            line = line.split("#", 1)[0].strip()
-            parts = re.split(r"\s*[=\t,]\s*", line, maxsplit=1)
-            if len(parts) == 2 and parts[0] and parts[1]:
-                glossary[parts[0]] = parts[1]
-    return glossary
+        return parse_text(f.read())
+
+
+MAX_ENTRY_LEN = 80  # characters in a term or a rendering
+
+
+def check_entry(term, zh, where=""):
+    """ValueError unless the pair can be saved in a glossary file and read back unchanged."""
+    if not term.strip() or len(term) > MAX_ENTRY_LEN or len(zh) > MAX_ENTRY_LEN:
+        raise ValueError(f"{where}A glossary entry is empty or too long (at most {MAX_ENTRY_LEN} characters).")
+    if "=" in term or "\n" in term + zh or "\r" in term + zh or _COMMENT.search(term) or _COMMENT.search(zh):
+        raise ValueError(f"{where}A glossary entry may not contain a line break, a `=` in the original, "
+                         f"or a # after a space: {term[:30]!r}.")
+
+
+def dumps(glossary):
+    """The glossary as text that parse_text/--glossary read back: entries with a rendering,
+    sorted, one `original=translation` per line, preceded by a short header."""
+    lines = []
+    for term, zh in sorted(glossary.items(), key=lambda p: p[0].lower()):
+        if not zh:
+            continue
+        try:
+            check_entry(term, zh)
+        except ValueError:  # cannot be written so that it reads back the same: leave it out
+            continue
+        lines.append(f"{term}={zh}")
+    return HEADER + "\n".join(lines) + ("\n" if lines else "")
 
 
 def load(path):

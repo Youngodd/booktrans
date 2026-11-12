@@ -37,6 +37,13 @@ const T = {
   uploadFailed: "Upload failed", readFailed: "Could not read the file",
   namesCollecting: "Collecting names…",
   namesIntro: "Edit any rendering you dislike; empty means not fixed.", namesNone: "No names to fix.",
+  namesApply: "Apply to translated pages", namesClose: "Close",
+  namesReviewIntro: "Check the names the translation used. Fix a rendering, or download the list, edit it and import it back; then apply the fixes to the pages already translated.",
+  namesSaved: (path) => "Names saved: " + path, importedOk: (n) => "Imported: " + n + " names.",
+  noChanges: "None of the translated pages is affected by your changes.",
+  applyConfirm: (n, total, cost) => n + " of " + total + " translated pages mention a changed name and will be translated again" +
+    (cost ? " (about ¥" + cost.toFixed(2) + ", a rough estimate, billed to your key)" : "") + ".",
+  applyGo: (n) => "Translate " + n + " page" + (n === 1 ? "" : "s") + " again",
   tickBox: "Please tick the confirmation box.", limitNumber: "Enter a number for the spend limit.",
   raiseErr: (spent) => "Enter a number above what is spent (¥" + spent + "), or 0.",
   spent: (v) => "  ·  spent ¥" + v,

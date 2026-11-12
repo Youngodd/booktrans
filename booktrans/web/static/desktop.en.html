@@ -108,6 +108,10 @@
     <p class="msg" id="namesmsg"></p>
     <div class="names-box"><table class="names" id="names"></table></div>
     <div class="actions">
+      <button class="secondary hidden" id="btn-names-download">Download names</button>
+      <button class="secondary hidden" id="btn-names-import">Import edited file</button>
+      <input type="file" id="names-file" accept=".txt,text/plain" class="hidden">
+      <button id="btn-names-apply" class="solid hidden">Apply to translated pages</button>
       <button id="btn-names-go" class="solid hidden">Use these names and translate</button>
       <button class="secondary hidden" id="btn-names-skip">Skip</button>
     </div>
@@ -133,6 +137,7 @@
       <button class="secondary hidden" id="btn-cancel">Cancel</button>
       <button class="secondary hidden" id="btn-continue">Continue</button>
       <button class="secondary hidden" id="btn-changekey">Change API key</button>
+      <button class="secondary hidden" id="btn-names-review">Review names</button>
       <button class="secondary hidden" id="btn-save">Save PDF</button>
       <button class="secondary hidden" id="btn-reveal">Show in folder</button>
       <button class="secondary hidden" id="btn-again">Change settings</button>

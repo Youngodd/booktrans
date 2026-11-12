@@ -10,13 +10,13 @@ from pathlib import Path
 from typing import Optional
 
 from fastapi import Depends, FastAPI, File, Header, HTTPException, Request, UploadFile
-from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
+from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from ..backends import catalog
 from ..backends.base import AuthError, BackendError
-from ..pipeline import detect_book_language, glossary_path, total_pages
+from ..pipeline import detect_book_language, glossary_changes, glossary_path, total_pages
 from .. import languages
 from ..readers import parse_range
 from .. import glossary as glossary_mod
@@ -49,6 +49,7 @@ class StartRequest(BaseModel):
     source: str = "auto"              # language of the book; auto = the detected one
     target: str = languages.DEFAULT_TARGET  # language to translate into (a code of /api/config languages)
     output_mode: str = "bilingual"    # or "target-only": only the translated pages
+    refresh_glossary: bool = False    # translate again the pages whose glossary entries were edited
 
 
 class DraftRequest(BaseModel):
@@ -65,6 +66,10 @@ class GlossaryEdit(BaseModel):
     entries: dict[str, str]
 
 
+class GlossaryImport(BaseModel):
+    text: str  # the contents of a downloaded (and edited) glossary file
+
+
 class StorageUpload(BaseModel):
     file_id: str
     filename: str
@@ -77,6 +82,13 @@ class KeyRequest(BaseModel):
 
 class LoginRequest(BaseModel):
     code: str
+
+
+def content_disposition(name):
+    """A Content-Disposition for a download called `name`, which may hold any characters."""
+    from urllib.parse import quote
+    plain = re.sub(r'[^A-Za-z0-9._ -]', "_", name)
+    return f"attachment; filename=\"{plain}\"; filename*=utf-8''{quote(name)}"
 
 
 def download_name(job):
@@ -406,21 +418,82 @@ def create_app(data_dir=None, *, executor=None, backend_factory=jobs.default_bac
             raise HTTPException(400, "Too many glossary entries.")
         path = glossary_path(store.dir(job_id) / "output.pdf", job.get("target", languages.DEFAULT_TARGET))
         glossary = glossary_mod.load(path)
+        edits = {}
         for term, zh in req.entries.items():
             term, zh = term.strip(), zh.strip()
-            if not term or len(term) > 80 or len(zh) > 80:
-                raise HTTPException(400, "A glossary entry is empty or too long.")
-            glossary[term] = zh
+            try:
+                glossary_mod.check_entry(term, zh)
+            except ValueError as e:
+                raise HTTPException(400, str(e))
+            edits[term] = zh
+        glossary.update(edits)
         glossary_mod.save(path, glossary)
         count = sum(1 for zh in glossary.values() if zh)
         store.write(job_id, glossary_state="ready", glossary_count=count)
         return {"entries": count}
+
+    @app.get("/api/jobs/{job_id}/glossary/download")
+    def glossary_download(job_id: str, viewer: str = Depends(who)):
+        """The glossary as an editable text file (`original=translation` lines), so a wrong
+        rendering can be found early and fixed; the file can be imported back."""
+        job = get_job(job_id, viewer)
+        if job.get("glossary_state") == "building":
+            raise HTTPException(409, "The glossary is still being collected. Try again in a moment.")
+        target = job.get("target", languages.DEFAULT_TARGET)
+        text = glossary_mod.dumps(glossary_mod.load(glossary_path(store.dir(job_id) / "output.pdf", target)))
+        if text == glossary_mod.HEADER:
+            raise HTTPException(404, "There are no names in the glossary yet.")
+        stem = Path(job["filename"]).stem or "book"
+        return PlainTextResponse(text, media_type="text/plain; charset=utf-8",
+                                 headers={"Cache-Control": "no-store",
+                                          "Content-Disposition": content_disposition(f"{stem}_glossary_{target}.txt")})
+
+    @app.post("/api/jobs/{job_id}/glossary/import")
+    def glossary_import(job_id: str, req: GlossaryImport, viewer: str = Depends(who)):
+        """Replace the glossary's renderings with those of an edited glossary file. A line that
+        cannot be read stops the import and is named; nothing is saved then."""
+        job = get_job(job_id, viewer)
+        if job["state"] in ACTIVE or job.get("glossary_state") == "building":
+            raise HTTPException(409, "Wait for the job to finish first.")
+        try:
+            entries = glossary_mod.parse_text(req.text, strict=True)
+        except ValueError as e:
+            raise HTTPException(400, str(e))
+        if not entries:
+            raise HTTPException(400, "The file has no `original=translation` lines.")
+        if len(entries) > MAX_GLOSSARY_ENTRIES:
+            raise HTTPException(400, "Too many glossary entries.")
+        path = glossary_path(store.dir(job_id) / "output.pdf", job.get("target", languages.DEFAULT_TARGET))
+        glossary = glossary_mod.load(path)
+        for term in glossary:  # a name the file no longer lists is dropped from use, as in the editor
+            glossary[term] = entries.get(term, "")
+        glossary.update(entries)
+        glossary_mod.save(path, glossary)
+        count = sum(1 for zh in glossary.values() if zh)
+        store.write(job_id, glossary_state="ready", glossary_count=count)
+        return {"entries": count}
+
+    @app.get("/api/jobs/{job_id}/glossary/changes")
+    def glossary_changes_get(job_id: str, viewer: str = Depends(who)):
+        """How many already-translated pages the edited glossary would change, and the cost
+        of translating them again (nothing is spent or started by asking)."""
+        job = get_job(job_id, viewer)
+        if job["state"] in ACTIVE or job.get("glossary_state") == "building":
+            raise HTTPException(409, "Wait for the job to finish first.")
+        found = glossary_changes(store.dir(job_id) / ("input" + job["ext"]), store.dir(job_id) / "output.pdf",
+                                 pages=job.get("range") or None, target=job.get("target", languages.DEFAULT_TARGET))
+        rate = spend.est_cny_per_page().get(job.get("provider") or "api")
+        n = len(found["pages"])
+        return {"pages": n, "page_numbers": found["pages"][:200], "translated": found["translated"],
+                "est_cny": round(n * rate, 2) if rate else None}
 
     @app.post("/api/jobs/{job_id}/start")
     def start(job_id: str, req: StartRequest, viewer: str = Depends(who)):
         job = get_job(job_id, viewer)
         if job["state"] in ACTIVE or job.get("glossary_state") == "building":
             raise HTTPException(409, "This job is already running.")
+        if req.refresh_glossary and req.only_cached:
+            raise HTTPException(400, "Finishing without spending cannot re-translate pages.")
         key = "" if req.only_cached else check_key(req.api_key, req.provider)
         limit = default_limit if req.spend_limit is None else req.spend_limit
         if not (0 <= limit <= 1_000_000):  # also rejects NaN
@@ -442,6 +515,7 @@ def create_app(data_dir=None, *, executor=None, backend_factory=jobs.default_bac
                     email_state="", auto_glossary=req.auto_glossary, spend_limit=limit,
                     source=source, target=target, output_mode=mode,
                     only_cached=req.only_cached, partial=False, spent_cny=round(spent, 4),
+                    refresh_glossary=req.refresh_glossary,
                     est_rest_cny=None)
         executor.submit(jobs.run_job, str(store.root), job_id, key, backend_factory,
                         provider, send_mail if email else None)
