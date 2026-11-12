@@ -14,6 +14,31 @@ def _sep(a, b):
     return "" if _CJK.match(a[-1:]) and _CJK.match(b[:1]) else " "
 
 
+def _continued(groups, style, x0, x1, y0, y1):
+    """The block a text line continues as a wrapped line, or None if it starts a new block.
+
+    A line continues a block when it sits just below that block's last line and over it
+    horizontally. A line beside it (a table cell next to another cell on the same row) does
+    not: it is a different block, however alike the type. Only the blocks on the last row are
+    considered, so a heading in between cuts a paragraph, while a wrapped cell still finds
+    its own earlier lines among the cells of that row.
+    """
+    h = max(y1 - y0, 1.0)
+    row = (groups[-1]["last"][0] + groups[-1]["last"][1]) / 2 if groups else 0
+    for g in reversed(groups):
+        top, bottom = g["last"]
+        if abs((top + bottom) / 2 - row) > 0.5 * h:
+            break  # an earlier row
+        if g["split"] or g["style"] != style:
+            continue
+        below = (y0 + y1) / 2 > (top + bottom) / 2 + 0.5 * h   # clearly lower, not beside it
+        near = y0 - bottom <= 2 * h                              # no big gap
+        over = x0 < g["bbox"][2] and x1 > g["bbox"][0]
+        if below and near and over:
+            return g
+    return None
+
+
 def extract_blocks(page):
     """Text blocks of a PDF page (pymupdf page): text, bbox and style.
 
@@ -46,23 +71,24 @@ def extract_blocks(page):
                 x1 = max(s["bbox"][2] for s in seg)
                 y0 = min(s["bbox"][1] for s in seg)
                 y1 = max(s["bbox"][3] for s in seg)
-                if cur and len(segs) == 1 and not cur["split"] and cur["style"] == style:
+                cur = _continued(groups, style, x0, x1, y0, y1) if len(segs) == 1 else None
+                if cur:
                     t = cur["text"]  # re-join wrapped lines, undoing line-end hyphens
                     cur["text"] = t[:-1] + text if t.endswith("-") and text[:1].islower() \
                         else t + _sep(t, text) + text
                     cur["bbox"] = [min(cur["bbox"][0], x0), cur["bbox"][1],
-                                   max(cur["bbox"][2], x1), y1]
+                                   max(cur["bbox"][2], x1), max(cur["bbox"][3], y1)]
                     cur["lines"] += 1
                     cur["x0s"].append(x0)
+                    cur["last"] = (y0, y1)
                 else:
-                    cur = {"text": text, "bbox": [x0, y0, x1, y1], "size": dom["size"],
-                           "color": "#%06x" % dom["color"], "lines": 1, "x0s": [x0],
-                           "bold": bool(dom["flags"] & 16) or "bold" in dom["font"].lower(),
-                           "style": style, "split": len(segs) > 1}
-                    groups.append(cur)
+                    groups.append({"text": text, "bbox": [x0, y0, x1, y1], "size": dom["size"],
+                                   "color": "#%06x" % dom["color"], "lines": 1, "x0s": [x0],
+                                   "bold": bool(dom["flags"] & 16) or "bold" in dom["font"].lower(),
+                                   "style": style, "split": len(segs) > 1, "last": (y0, y1)})
         for g in groups:
             if has_words(g["text"]):  # skip page numbers, symbols
-                del g["style"], g["split"]
+                del g["style"], g["split"], g["last"]
                 blocks.append(g)
     return blocks
 
