@@ -163,6 +163,19 @@ translate_book("book.pdf", "out.pdf", translator, pages="1-20",
                progress=lambda stage, done, total: print(stage, done, total))
 ```
 
+What to do is a `booktrans.options.JobOptions`: the page range, the languages, the output mode,
+the glossary options and so on, with their defaults and their checking in one place (a value that is not
+allowed is a `ValueError` when it is made). `translate_book` takes one, or the same settings as keyword
+arguments as above:
+
+```python
+from booktrans.options import JobOptions
+translate_book("book.pdf", "out.pdf", translator, JobOptions(pages="1-20", target="fr"))
+```
+
+The command line and the web service each fill in one `JobOptions` and nothing else, so a new option
+is added to `JobOptions` and `translate_book`, not to every entry point.
+
 `progress(stage, done, total)` is called as pages complete, with stage `scan`,
 `ocr`, `translate` or `render`. Failed model calls (dropped connection, rate
 limit) are retried with a growing delay and then raise `BackendError`; progress

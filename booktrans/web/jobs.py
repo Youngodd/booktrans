@@ -247,10 +247,18 @@ def run_glossary_draft(root, job_id, api_key, backend_factory=default_backend, p
             raise
 
 
+def job_options(job):
+    """The pipeline settings stored on a job. A job made before a setting existed lacks it, and
+    then JobOptions' default applies, so no default is repeated here."""
+    from ..options import JobOptions
+    kw = {key: job[key] for key in ("auto_glossary", "only_cached", "refresh_glossary", "source", "target",
+                                    "output_mode") if key in job}
+    return JobOptions(pages=job["range"], **kw)
+
+
 def run_job(root, job_id, api_key, backend_factory=default_backend, provider="api",
             send_mail=None):
     """Run one job to the end. Executed in a worker process (or thread, in tests)."""
-    from ..languages import DEFAULT_TARGET
     from ..pipeline import Cancelled, translate_book
     from ..spend import Meter, NoCalls, SpendLimitReached, rest_estimate
     store = JobStore(root)
@@ -272,21 +280,16 @@ def run_job(root, job_id, api_key, backend_factory=default_backend, provider="ap
     try:
         store.write(job_id, state="running", stage="scan", done=0, total=0, error="")
         translator = NoCalls() if job.get("only_cached") else backend_factory(api_key, provider, **_chosen(job, job["ocr"]))
-        pages = job["range"]
-        translate_book(path / ("input" + job["ext"]), path / "output.pdf", translator,
-                       ocr_backend=translator if job["ocr"] else None, pages=pages,
-                       progress=progress, auto_glossary=job.get("auto_glossary", True),
-                       meter=meter, only_cached=job.get("only_cached", False),
-                       source=job.get("source", "auto"), target=job.get("target", DEFAULT_TARGET),
-                       output_mode=job.get("output_mode", "bilingual"),
-                       refresh_glossary=job.get("refresh_glossary", False))
+        options = job_options(job)
+        translate_book(path / ("input" + job["ext"]), path / "output.pdf", translator, options,
+                       ocr_backend=translator if job["ocr"] else None, progress=progress, meter=meter)
         store.write(job_id, state="done", stage="done", usage=translator.usage.as_dict(),
                     finished=time.time(), spent_cny=round(meter.spent, 4),
                     partial=bool(job.get("only_cached", False)))
         if send_mail and job.get("email"):
             try:
                 stem = Path(job["filename"]).stem or "book"
-                tag = "bilingual" if job.get("output_mode", "bilingual") == "bilingual" else job.get("target", DEFAULT_TARGET)
+                tag = "bilingual" if options.output_mode == "bilingual" else options.target
                 send_mail(job["email"], path / "output.pdf", f"{stem}_{tag}.pdf")
                 store.write(job_id, email_state="sent")
             except Exception:  # the PDF is still downloadable; just record the failure

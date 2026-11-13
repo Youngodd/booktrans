@@ -1,5 +1,6 @@
 """Command-line entry point: wires readers, OCR, translation and the writer."""
 import argparse
+import dataclasses
 import math
 import sys
 from pathlib import Path
@@ -8,6 +9,7 @@ from .backends import BACKENDS, make_backend
 from .backends.base import BackendError
 from . import languages
 from . import glossary as glossary_mod
+from .options import JobOptions
 from .pipeline import MIN_TEXT_CHARS, default_output, draft_glossary, glossary_changes, glossary_path, translate_book
 from .readers import parse_range, read_book
 from .spend import DEFAULT_LIMIT_CNY, Meter, SpendLimitReached, est_cny_per_page, rest_estimate
@@ -144,6 +146,19 @@ def decide(e, last, out):
             return ("cancel",)
 
 
+def job_options(args, state):
+    """The settings of this run, from the command line."""
+    return JobOptions(pages=args.pages, redo=args.redo, flat=args.flat, glossary_file=args.glossary,
+                      auto_glossary=not args.no_auto_glossary, source=args.source, target=args.target,
+                      output_mode=args.output_mode, state=state, refresh_glossary=args.apply_glossary)
+
+
+def only_translated(options):
+    """The same job as one that spends nothing: it builds the PDF from the pages already translated."""
+    return dataclasses.replace(options, only_cached=True, redo=None, glossary_file=None,
+                               auto_glossary=True, refresh_glossary=False)
+
+
 def export_glossary(args, translator, state):
     """Collect the names of the book, write them to --export-glossary, and stop."""
     meter = Meter(args.max_spend, state.with_suffix(".spend.json"))
@@ -219,17 +234,14 @@ def run(args):
     # cache, OCR text and glossary sit next to the bilingual name whatever the mode, so
     # changing only --output-mode re-uses every page already translated
     state = args.output or default_output(args.book, args.pages)
-    lang = dict(source=args.source, target=args.target, output_mode=args.output_mode, state=state)
+    options = job_options(args, state)
     if args.export_glossary:
         export_glossary(args, translator, state)
         return
-    if args.apply_glossary:
-        if not confirm_apply(args, out, state):
-            return
-        lang["refresh_glossary"] = True
+    if args.apply_glossary and not confirm_apply(args, out, state):
+        return
     if args.finish_partial:
-        translate_book(args.book, out, translator, pages=args.pages, flat=args.flat, only_cached=True,
-                       **lang)
+        translate_book(args.book, out, translator, only_translated(options))
         print(f"Done (translated pages only): {out}")
         return
     limit, last, show = args.max_spend, {}, make_progress()
@@ -242,18 +254,15 @@ def run(args):
         while True:
             meter = Meter(limit, state.with_suffix(".spend.json"))  # the total is kept across runs
             try:
-                translate_book(args.book, out, translator, ocr_backend=ocr_backend, pages=args.pages,
-                               redo=args.redo, flat=args.flat, progress=progress,
-                               glossary_file=args.glossary, auto_glossary=not args.no_auto_glossary,
-                               meter=meter, **lang)
+                translate_book(args.book, out, translator, options, ocr_backend=ocr_backend,
+                               progress=progress, meter=meter)
                 break
             except SpendLimitReached as e:
                 choice = decide(e, last, out)
                 if choice[0] == "raise":
                     limit = choice[1]
                 elif choice[0] == "finish":
-                    translate_book(args.book, out, translator, pages=args.pages, flat=args.flat,
-                                   only_cached=True, **{k: v for k, v in lang.items() if k != "refresh_glossary"})
+                    translate_book(args.book, out, translator, only_translated(options))
                     print(f"Done (translated pages only): {out}")
                     return
                 else:

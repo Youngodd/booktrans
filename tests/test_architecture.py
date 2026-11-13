@@ -104,7 +104,7 @@ def test_the_translating_core_does_not_import_the_entry_points():
 
 def test_the_lowest_layer_imports_nothing_from_the_ones_above():
     g = graph()
-    base = {"backends.base", "languages", "fsutil", "usage", "textclean", "prompts"}
+    base = {"backends.base", "languages", "fsutil", "usage", "textclean", "prompts", "options"}
     above = {"pipeline", "translate", "glossary", "layout", "writer", "ocr", "readers", "spend"}
     for n in base:
         assert not (g[n] & above), (n, g[n] & above)

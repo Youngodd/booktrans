@@ -9,6 +9,7 @@ from . import glossary as glossary_mod
 from . import languages
 from .layout import collect_layout, render_layout_page
 from .ocr import ocr_scanned_pages
+from .options import JobOptions
 from .readers import parse_range, read_book
 from .spend import Metered, NoCalls, SpendLimitReached
 from .translate import cache_key, load_cache, stale_positions, translate_all
@@ -141,11 +142,14 @@ def draft_glossary(book, translator, glossary_path, *, pages=None, progress=None
     return glossary
 
 
-def translate_book(book, out, translator, *, ocr_backend=None, pages=None, redo=None,
-                   flat=False, progress=None, glossary_file=None, auto_glossary=True,
-                   meter=None, only_cached=False, source="auto", target=languages.DEFAULT_TARGET,
-                   output_mode="bilingual", state=None, refresh_glossary=False):
+def translate_book(book, out, translator, options=None, *, ocr_backend=None, progress=None,
+                   meter=None, **settings):
     """Translate `book` into the PDF `out`; returns `out`.
+
+    What to do is a `JobOptions` (options.py), or the same settings as keyword arguments:
+    `translate_book(book, out, t, target="fr")` is `translate_book(book, out, t, JobOptions(target="fr"))`.
+    Naming a setting that does not exist is a TypeError, a value that is not allowed a ValueError.
+    The settings, with their defaults:
 
     translator    an LLMBackend that translates
     ocr_backend   a vision backend; scanned pages with no text layer are read with it
@@ -176,13 +180,15 @@ def translate_book(book, out, translator, *, ocr_backend=None, pages=None, redo=
 
     Progress is cached next to `out`, so a repeated call resumes where it stopped.
     """
+    if options is not None and settings:
+        raise TypeError("Pass the settings as one JobOptions or as keyword arguments, not both.")
+    o = options if options is not None else JobOptions(**settings)
+    pages, redo, flat, glossary_file = o.pages, o.redo, o.flat, o.glossary_file
+    only_cached, refresh_glossary, source, target, output_mode = (
+        o.only_cached, o.refresh_glossary, o.source, o.target, o.output_mode)
+    auto_glossary = o.auto_glossary and not refresh_glossary  # only the pages that changed are paid for
     book, out = Path(book), Path(out)
-    source, target = languages.check_source(source), languages.check_target(target)
-    languages.check_mode(output_mode)
-    if refresh_glossary and only_cached:
-        raise ValueError("Re-translating pages and finishing without spending cannot be combined.")
-    auto_glossary = auto_glossary and not refresh_glossary  # only the pages that changed are paid for
-    state = Path(state) if state else out
+    state = o.state or out
     overrides = glossary_mod.parse_file(glossary_file) if glossary_file else {}  # a bad file fails now, not after the OCR
     is_pdf = book.suffix.lower() == ".pdf"
     all_pages = read_book(book)
