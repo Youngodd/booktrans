@@ -6,7 +6,8 @@ import sys
 import pytest
 from pypdf import PdfReader
 
-from booktrans import cli, spend, translate
+from booktrans import cli, spend
+from booktrans.backends import base
 from booktrans.pipeline import translate_book
 from booktrans.spend import Meter, SpendLimitReached
 from tests.conftest import PricedBackend
@@ -62,14 +63,14 @@ def test_a_limit_at_or_below_what_is_spent_stops_at_once(text_pdf, tmp_path):
 
 
 def test_retries_count_toward_the_spend(text_pdf, tmp_path, monkeypatch):
-    monkeypatch.setattr(translate, "RETRY_DELAYS", (0, 0, 0))
+    monkeypatch.setattr(base, "RETRY_DELAYS", (0, 0, 0))
     out, b = tmp_path / "o.pdf", PricedBackend(fail_first=1)
     meter = run(text_pdf, out, b, 100, pages="1")
     assert len(b.calls) == 1 and meter.spent == 2.0  # a billed failure plus the retry
 
 
 def test_retries_cannot_run_past_the_limit(text_pdf, tmp_path, monkeypatch):
-    monkeypatch.setattr(translate, "RETRY_DELAYS", (0, 0, 0))
+    monkeypatch.setattr(base, "RETRY_DELAYS", (0, 0, 0))
     out = tmp_path / "o.pdf"
     with pytest.raises(SpendLimitReached):  # every attempt fails but is billed
         run(text_pdf, out, PricedBackend(fail_first=99), 2.5, pages="1")

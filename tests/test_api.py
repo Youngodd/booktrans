@@ -1,6 +1,7 @@
 import pytest
 from pypdf import PdfReader
 import booktrans.translate as tr
+from booktrans.backends import base
 from booktrans.backends.base import BackendError
 from booktrans.layout import collect_layout
 from booktrans.pipeline import count_pages, default_output, translate_book
@@ -33,7 +34,7 @@ def test_count_pages_and_default_output(text_pdf, tmp_path):
 
 
 def test_failed_call_is_retried_then_succeeds(monkeypatch, fake):
-    monkeypatch.setattr(tr.time, "sleep", lambda s: None)
+    monkeypatch.setattr(base.time, "sleep", lambda s: None)
     failures = iter([True, True, False])
 
     def reply(user):
@@ -46,14 +47,14 @@ def test_failed_call_is_retried_then_succeeds(monkeypatch, fake):
 
 
 def test_failed_call_gives_up_after_retries(monkeypatch, fake):
-    monkeypatch.setattr(tr.time, "sleep", lambda s: None)
+    monkeypatch.setattr(base.time, "sleep", lambda s: None)
 
     def reply(user):
         raise BackendError("down")
     fake.reply = reply
     with pytest.raises(BackendError):
         tr.translate(fake, "Hello")
-    assert len(fake.calls) == len(tr.RETRY_DELAYS) + 1
+    assert len(fake.calls) == len(base.RETRY_DELAYS) + 1
 
 
 def test_collect_layout_analyses_each_page_once(text_pdf, monkeypatch):

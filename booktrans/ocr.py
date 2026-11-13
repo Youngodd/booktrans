@@ -1,6 +1,6 @@
 """OCR for scanned PDF pages, using a vision-capable backend."""
 from .prompts import OCR_PROMPT
-from .translate import load_cache, save_cache
+from .fsutil import read_json, write_json
 
 OCR_DPI = 150
 
@@ -15,13 +15,13 @@ def ocr_page(backend, path, i):
 
 def ocr_scanned_pages(backend, book, idx, pages, scanned, cache_path, progress=None):
     """Fill pages[n] with OCR text for each scanned n; cached and resumable."""
-    cache = load_cache(cache_path)
+    cache = read_json(cache_path)
     for k, n in enumerate(scanned, 1):
         key = str(idx[n])
         if key not in cache:
             print(f"OCR page {idx[n] + 1} ({k}/{len(scanned)})...", flush=True)
             cache[key] = ocr_page(backend, book, idx[n])
-            save_cache(cache_path, cache)
+            write_json(cache_path, cache)
         pages[n] = cache[key]
         if progress:
             progress("ocr", k, len(scanned))

@@ -4,9 +4,9 @@ call), BOOKTRANS_SHIM_FAIL_FILE (calls fail while it exists), BOOKTRANS_SHIM_CAL
 import os, sys, time
 from pathlib import Path
 import booktrans.desktop.__main__ as dm
-import booktrans.translate as tr
+import booktrans.backends.base as base
 from booktrans.backends.base import AuthError, BackendError
-tr.RETRY_DELAYS = (0.2,)  # test only: do not wait 5/20/60 s between retries
+base.RETRY_DELAYS = (0.2,)  # test only: do not wait 5/20/60 s between retries
 
 class Shim(dm.FakeBackend):
     def __init__(self, key=""):

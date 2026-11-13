@@ -75,7 +75,7 @@ def test_build_survives_a_backend_error_but_not_a_bad_key():
         def complete(self, *a, **k):
             raise BackendError("down")
     g = {}
-    import booktrans.translate as t
+    from booktrans.backends import base as t
     old, t.RETRY_DELAYS = t.RETRY_DELAYS, ()
     try:
         glossary.build(Down(), [BOOK], [BOOK], g)

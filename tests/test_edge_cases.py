@@ -5,6 +5,7 @@ import math
 import pytest
 
 from booktrans import glossary, languages, readers, spend, translate, usage
+from booktrans.backends import base
 from booktrans.backends.base import AuthError, BackendError
 from booktrans.fsutil import read_json, write_json
 from booktrans.textclean import clean_text
@@ -114,7 +115,7 @@ def test_glossary_build_survives_a_garbage_reply():
 
 def test_glossary_build_keeps_what_was_paid_for_when_a_later_chunk_fails(monkeypatch):
     monkeypatch.setattr(glossary, "CHUNK", 1)
-    monkeypatch.setattr(translate, "RETRY_DELAYS", (0,))
+    monkeypatch.setattr(base, "RETRY_DELAYS", (0,))
     calls = []
 
     def reply(user):
@@ -317,7 +318,7 @@ def test_reflow_edges():
 @pytest.fixture
 def no_sleep(monkeypatch):
     slept = []
-    monkeypatch.setattr(translate.time, "sleep", slept.append)
+    monkeypatch.setattr(base.time, "sleep", slept.append)
     return slept
 
 
@@ -329,25 +330,25 @@ def test_complete_retries_then_succeeds(no_sleep):
         if state["n"] < 3:
             raise BackendError("blip")
         return "ok"
-    assert translate.complete(FakeBackend(reply=reply), "s", "t", 100) == "ok"
+    assert base.complete(FakeBackend(reply=reply), "s", "t", 100) == "ok"
     assert no_sleep == [5, 20]
 
 
 def test_complete_gives_up_after_the_last_retry(no_sleep):
     fb = FakeBackend(reply=lambda u: (_ for _ in ()).throw(BackendError("down")))
     with pytest.raises(BackendError):
-        translate.complete(fb, "s", "t", 100)
+        base.complete(fb, "s", "t", 100)
     assert len(fb.calls) == 4 and no_sleep == [5, 20, 60]
 
 
 def test_complete_never_retries_an_auth_error_or_a_spend_stop(no_sleep):
     fb = FakeBackend(reply=lambda u: (_ for _ in ()).throw(AuthError("bad key")))
     with pytest.raises(AuthError):
-        translate.complete(fb, "s", "t", 100)
+        base.complete(fb, "s", "t", 100)
     assert len(fb.calls) == 1 and no_sleep == []
     fb = FakeBackend(reply=lambda u: (_ for _ in ()).throw(spend.SpendLimitReached(1, 1)))
     with pytest.raises(spend.SpendLimitReached):
-        translate.complete(fb, "s", "t", 100)
+        base.complete(fb, "s", "t", 100)
     assert len(fb.calls) == 1
 
 

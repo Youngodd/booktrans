@@ -1,29 +1,12 @@
 """Translate page text through an LLM backend, with an on-disk cache."""
 import re
-import time
 
-from .backends.base import AuthError, BackendError
+from .backends.base import BackendError, complete
 from . import glossary as gloss
 from .languages import DEFAULT_TARGET
 from .layout import KEEP
 from .fsutil import read_json, write_json
 from .prompts import layout_prompt, system_prompt
-
-RETRY_DELAYS = (5, 20, 60)  # seconds to wait before each retry of a failed call
-
-
-def complete(backend, system, text, max_tokens):
-    """backend.complete, retried when the call fails (dropped connection, rate limit)."""
-    for delay in (*RETRY_DELAYS, None):
-        try:
-            return backend.complete(system, text, max_tokens=max_tokens)
-        except AuthError:
-            raise
-        except BackendError:
-            if delay is None:
-                raise
-            time.sleep(delay)
-
 
 def load_cache(path):
     return read_json(path)

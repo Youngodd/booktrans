@@ -8,7 +8,7 @@ page request then carries the entries that occur on that page.
 import re
 from collections import defaultdict
 
-from .backends.base import AuthError, BackendError
+from .backends.base import AuthError, BackendError, complete
 from .fsutil import read_json, write_json
 from .prompts import GLOSSARY_NOTE, glossary_prompt
 
@@ -161,7 +161,6 @@ def build(backend, all_texts, needed_texts, glossary, progress=None, source="en"
     pages being translated still gets the same rendering as in the rest of the book. An
     entry with "" means "no fixed rendering needed" and is not asked again.
     """
-    from .translate import complete  # translate imports this module too
     needed = "\n".join(needed_texts)
     todo = [(t, ex) for t, ex in candidates(all_texts)
             if t not in glossary and mentioned(t, needed)]
