@@ -196,7 +196,8 @@ def create_app(data_dir=None, *, executor=None, backend_factory=jobs.default_bac
         keys = ("id", "filename", "state", "stage", "done", "total", "error", "error_code", "error_detail", "pages_total",
                 "range", "preview", "usage", "email_state", "glossary_state", "glossary_error",
                 "glossary_count", "auto_glossary", "spent_cny", "spend_limit", "est_rest_cny",
-                "partial", "detected_language", "source", "target", "output_mode")
+                "partial", "detected_language", "source", "target", "output_mode",
+                "provider", "model", "ocr_model", "ocr")
         approx = spend.price_approx(job.get("provider", ""), job.get("model", ""),
                                     job.get("ocr_model", ""), job.get("ocr", False))
         return {k: job[k] for k in keys if k in job} | {"est_cost_per_page": EST_COST_PER_PAGE,

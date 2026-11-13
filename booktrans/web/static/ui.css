@@ -177,6 +177,10 @@ input[type=file]::file-selector-button:hover { background: var(--primary-hover);
         background: var(--primary-soft); color: var(--gray-700); font: 400 var(--fs-sm) / 1.5 var(--sans); }
 #bookinfo { margin: 0; font: 600 var(--fs-lg) / 1.4 var(--sans); overflow-wrap: anywhere; }
 
+.runinfo { display: grid; grid-template-columns: auto 1fr; gap: var(--sp-1) var(--sp-4); margin: 0 0 var(--sp-4);
+  padding: var(--sp-3) var(--sp-4); background: var(--primary-soft); border-radius: var(--radius-sm); font: 400 var(--fs-sm) / 1.5 var(--sans); }
+.runinfo dt { color: var(--text-2); }
+.runinfo dd { margin: 0; min-width: 0; overflow-wrap: anywhere; }
 .msg { margin: var(--sp-3) 0 0; color: var(--text-2); font: 400 var(--fs-sm) / 1.5 var(--sans); }
 .msg:empty { display: none; }
 .msg.err, .msg.done { padding: var(--sp-3) var(--sp-4); border-radius: var(--radius-sm); font-weight: 500; }

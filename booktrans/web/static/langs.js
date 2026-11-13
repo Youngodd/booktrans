@@ -45,6 +45,33 @@ function languageFields() {
            output_mode: document.getElementById("output-mode").value };
 }
 
+/* The read-only summary of what a book was submitted with, shown on the progress card so the
+   settings can be hidden while it runs. Two lines: the book, and how it is translated.
+   The API key is never part of it; the provider is named, nothing more. */
+function langShort(code) {  // one name, in the page's language: "French" on an English page, "法语"-style natives on Chinese
+  const l = LANG_LIST.find((x) => x.code === code);
+  if (!l) return "";
+  return (document.documentElement.lang || "").toLowerCase().startsWith("zh") ? l.native : l.name;
+}
+function runSummary(j) {
+  const total = j.pages_total || 0, r = j.range || "";
+  const whole = !r || r === "1-" + total;
+  const range = j.preview ? T.sumPreview(r) : whole ? "" : T.sumRange(r.replace("-", "–"));
+  const book = [j.filename || "", total ? T.sumPages(total) : "", range].filter(Boolean).join(" · ");
+  const src = !j.source || j.source === "auto" ? (j.detected_language ? langShort(j.detected_language) : T.autoDetect) : langShort(j.source);
+  const tgt = langShort(j.target);
+  const prov = (T.providers || {})[j.provider] || j.provider || "";
+  const how = [src && tgt ? src + " → " + tgt : tgt, j.output_mode === "target-only" ? T.sumTargetOnly : T.sumBilingual,
+               [prov, j.model].filter(Boolean).join(" ")].filter(Boolean).join(" · ");
+  return { book, how };
+}
+function fillRunInfo(j) {
+  const s = runSummary(j), box = document.getElementById("runinfo");
+  document.getElementById("run-book").textContent = s.book;
+  document.getElementById("run-set").textContent = s.how;
+  box.classList.toggle("hidden", !(j && j.filename && j.state && j.state !== "uploaded"));
+}
+
 function downloadName(job) {
   const stem = (job.filename || "book").replace(/\.[^.]+$/, "");
   return stem + "_" + (job.output_mode === "target-only" ? job.target || "translation" : "bilingual") + ".pdf";

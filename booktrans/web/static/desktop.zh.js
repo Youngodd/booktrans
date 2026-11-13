@@ -26,6 +26,8 @@ const T = {
   keyRejected: "供应商拒绝了这个 key，请检查后重试。",
   providerUnreachable: "无法连接供应商，请检查网络。",
   using: (name) => "供应商：" + name + "。可在“设置”中更改。",
+  sumPages: (n) => "共 " + n + " 页", sumRange: (r) => "第 " + r + " 页", sumPreview: (r) => "试译，第 " + r.replace("-", "–") + " 页",
+  sumBilingual: "双语对照", sumTargetOnly: "仅译文",
   bookInfo: (name, n) => name + " — 共 " + n + " 页",
   estimate: (n, cost, measured, over, approx) => n + " 页 ≈ ¥" + cost.toFixed(2) + "（粗略估算，" +
     (measured ? "按一本书的实测" : "费率未核实") + "；按你的 key 计费）" +

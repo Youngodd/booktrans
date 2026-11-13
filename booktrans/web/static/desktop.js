@@ -334,9 +334,27 @@ function failureText(j) {  // what happened and what to do, in this page's langu
   const advice = T.errors[j.error_code];
   return advice ? advice + (j.error_detail ? " (" + T.detail + j.error_detail + ")" : "") : (j.error || "");
 }
+function restoreForm(j) {  // put back what the book was submitted with, so Continue sends what the summary says
+  $("source").value = j.source || "auto"; $("target").value = j.target || $("target").value;
+  $("output-mode").value = j.output_mode || "bilingual";
+  if (!j.preview) $("pages").value = j.range && j.range !== "1-" + j.pages_total ? j.range : "";
+  if (j.spend_limit !== undefined) $("limit").value = String(j.spend_limit);
+  if (j.provider === provider) {  // the saved key may belong to another provider by now
+    $("ocr").checked = !!j.ocr && !$("ocr").disabled;
+    prefs[provider] = { model: j.model || "", ocr_model: j.ocr_model || "" };
+    fillPickers();
+  }
+  updateEstimate();
+}
+let restoredFor = "";  // the job whose settings were last put back into the form
 function render(j) {
+  const before = job && job.state;
   job = Object.assign(job || {}, j);
-  show("step-run", true);
+  show("step-run", true); fillRunInfo(job);
+  const resting = j.state === "paused" || j.state === "failed";
+  // the form is hidden while the book runs, so fill it from the saved job: the first time this job is
+  // shown (a reopened app) and whenever it stops for the user; Continue and Raise send these values
+  if ((resting && before !== j.state) || (j.state !== "uploaded" && restoredFor !== j.id)) { restoreForm(job); restoredFor = j.id; }
   const active = j.state === "queued" || j.state === "running";
   $("bar").style.width = (j.state === "done" ? 100 : (j.total ? 100 * j.done / j.total : 0)) + "%";
   $("runerr").textContent = j.state === "failed" ? failureText(j) : "";
@@ -359,7 +377,8 @@ function render(j) {
   show("btn-names-review", j.state === "done");
   show("btn-save", j.state === "done"); show("btn-reveal", !!savedPath && j.state === "done");
   show("btn-again", !active); show("btn-delete", !active);
-  show("step-setup", false);
+  show("step-setup", resting);  // while it runs only the summary shows; the form returns when it stops for the user to fix
+  if (resting && before !== j.state) $("step-run").scrollIntoView({ block: "nearest" });  // the error and Continue stay in view, the form is just above
   if (!active && job.pages_total) updateEstimate();
 }
 function poll() {

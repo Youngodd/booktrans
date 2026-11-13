@@ -26,6 +26,8 @@ const T = {
   keyRejected: "The provider rejected this key.",
   providerUnreachable: "Could not reach the provider; check your network.",
   using: (name) => "Provider: " + name + ". Change it under Settings.",
+  sumPages: (n) => n + " pages", sumRange: (r) => "pages " + r, sumPreview: (r) => "preview, pages " + r.replace("-", "–"),
+  sumBilingual: "bilingual", sumTargetOnly: "translation only",
   bookInfo: (name, n) => name + " — " + n + " pages",
   estimate: (n, cost, measured, over, approx) => n + " pages ≈ ¥" + cost.toFixed(2) + " (rough estimate; " +
     (measured ? "measured on one book" : "rate not verified") + "; billed to your key)" +

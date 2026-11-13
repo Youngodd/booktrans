@@ -4,6 +4,8 @@ const T = {
   notDetected: "Language not detected yet; the model will work it out.",
   stages: { scan: "Analysing layout", ocr: "Reading scanned pages", translate: "Translating",
             render: "Building pages", "": "Waiting for a free worker" },
+  sumPages: (n) => n + " pages", sumRange: (r) => "pages " + r, sumPreview: (r) => "preview, pages " + r.replace("-", "–"),
+  sumBilingual: "bilingual", sumTargetOnly: "translation only",
   bookInfo: (name, n) => name + " — " + n + " pages",
   estimateOther: "Billed by the provider to your key; see their pricing.",
   estimate: (n, usd) => n + " pages ≈ US$" + usd + " (billed to your key; estimate)",

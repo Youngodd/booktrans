@@ -95,7 +95,7 @@ function failureText(j) {  // what happened and what to do, in this page's langu
 }
 function render(j) {
   job = Object.assign(job || {}, j);
-  show("step-run", true);
+  show("step-run", true); fillRunInfo(job);
   const active = j.state === "queued" || j.state === "running";
   const pct = j.total ? 100 * j.done / j.total : 0;
   $("bar").style.width = (j.state === "done" ? 100 : pct) + "%";
