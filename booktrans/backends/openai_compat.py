@@ -26,6 +26,9 @@ PROVIDERS = {
         "base_url": "https://api.deepseek.com",
         "key_env": "DEEPSEEK_API_KEY", "model": "deepseek-flash", "vision": None,  # deepseek-chat/-reasoner were retired 2026-07-24
         "models": ["deepseek-flash", "deepseek-v4-pro"], "vision_models": [],
+        # DeepSeek thinks by default and the thinking is paid out of max_tokens: a page's whole
+        # allowance went on it and the answer came back empty. Translation does not need it.
+        "extra_body": {"thinking": {"type": "disabled"}},
         "label": "DeepSeek"},
     "openai-compatible": {  # anything else: set BOOKTRANS_BASE_URL, BOOKTRANS_API_KEY and --model
         "base_url": None, "key_env": "BOOKTRANS_API_KEY", "model": None, "vision": None,
@@ -52,6 +55,7 @@ class OpenAICompatBackend(LLMBackend):
         key = api_key or os.environ.get(cfg["key_env"])
         if not key:
             raise ValueError(f"No API key: set {cfg['key_env']}.")
+        self.extra_body = cfg.get("extra_body")  # provider-specific request fields
         self.client = openai.OpenAI(api_key=key, base_url=base_url, timeout=TIMEOUT,
                                     max_retries=0)  # retries are done by translate.py
 
@@ -59,7 +63,7 @@ class OpenAICompatBackend(LLMBackend):
         import openai
         try:
             resp = self.client.chat.completions.create(
-                model=model, messages=messages, max_tokens=max_tokens)
+                model=model, messages=messages, max_tokens=max_tokens, extra_body=self.extra_body)
         except (openai.AuthenticationError, openai.PermissionDeniedError) as e:
             why = (getattr(e, "message", "") or "")[:300]  # the provider's own reason (never contains the key)
             raise AuthError(f"The provider refused the call to model \"{model}\" ({why or 'no reason given'}). "
@@ -72,7 +76,11 @@ class OpenAICompatBackend(LLMBackend):
                            "output_tokens": getattr(u, "completion_tokens", 0)})
         if not resp.choices:
             raise BackendError("The model returned no answer.")
-        return (resp.choices[0].message.content or "").strip()
+        text = (resp.choices[0].message.content or "").strip()
+        if not text and getattr(resp.choices[0], "finish_reason", None) == "length":
+            raise BackendError(f"The model \"{model}\" used its whole answer allowance ({max_tokens} tokens) "
+                               "without writing an answer (a thinking model spends it on reasoning).")
+        return text
 
     def complete(self, system, user, max_tokens=4096):
         return self._send(self.model, [{"role": "system", "content": system},

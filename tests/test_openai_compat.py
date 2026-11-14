@@ -98,3 +98,23 @@ def test_a_refused_vision_call_names_the_model_and_the_providers_reason():
         backend(err).ocr_image(b"jpeg", "read")
     text = str(e.value)
     assert "qwen-vl-max" in text and "Model access denied." in text and "k-123" not in text
+
+
+def test_deepseek_is_called_with_thinking_off_and_the_others_are_not():
+    """DeepSeek thinks by default and pays for it out of max_tokens, so a page came back empty."""
+    b = backend(provider="deepseek")
+    b.complete("SYS", "hello")
+    assert b.client.chat.completions.calls[0]["extra_body"] == {"thinking": {"type": "disabled"}}
+    b = backend()
+    b.complete("SYS", "hello")
+    assert b.client.chat.completions.calls[0]["extra_body"] is None
+
+
+def test_an_answer_cut_off_before_it_began_says_why():
+    b = backend()
+    empty = types.SimpleNamespace(
+        choices=[types.SimpleNamespace(message=types.SimpleNamespace(content=None), finish_reason="length")],
+        usage=types.SimpleNamespace(prompt_tokens=11, completion_tokens=4096))
+    b.client.chat.completions.create = lambda **kw: empty
+    with pytest.raises(BackendError, match="whole answer allowance"):
+        b.complete("SYS", "hello")
