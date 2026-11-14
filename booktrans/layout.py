@@ -69,29 +69,63 @@ def _continued(groups, style, x0, x1, y0, y1):
     return None
 
 
+_ENDS = re.compile(r"(?:[。！？!?.:：;；…]|\d)[\"'”’」』）)\]]*\s*$")  # a sentence end, or a page number
+WRAP_MIN_WIDTH = 0.35  # of the page width: a narrower line is more likely a table cell than prose
+
+
+def _wraps(g, style, size, x0, y0, y1, edges, page_width):
+    """True if a line that starts a new pymupdf block is the wrapped rest of block `g`.
+
+    Some PDFs store every line as a block of its own (a table of contents, a book set by a
+    word processor), so one sentence would be translated as two pieces. The line is joined
+    only when the evidence is one-sided: same style, right below, not indented, and the line
+    above it is a full line of prose (it reaches the right edge of its column, is wide, and
+    does not end a sentence or with a page number). `edges` are the (x0, x1) of the page's lines.
+    """
+    if g["split"] or g["style"] != style or _ENDS.search(g["text"]):
+        return False
+    top, bottom = g["last"]
+    lx0, lx1 = g["lastx"]
+    h = max(y1 - y0, 1.0)
+    below = (y0 + y1) / 2 > (top + bottom) / 2 + 0.5 * h and -0.3 * h <= y0 - bottom <= h
+    left = min(g["x0s"])
+    aligned = left - 3 * size <= x0 <= left + 0.5 * size
+    column = [e for e in edges if e[0] < lx1 and e[1] > lx0] or [(lx0, lx1)]
+    column_left, column_right = min(a for a, _ in column), max(b for _, b in column)
+    ragged = max(size, 0.1 * (column_right - column_left))  # unjustified lines end a little short
+    full = lx1 - lx0 >= WRAP_MIN_WIDTH * page_width and lx1 >= column_right - ragged
+    return below and aligned and full
+
+
 def extract_blocks(page):
     """Text blocks of a PDF page (pymupdf page): text, bbox and style.
 
     A pymupdf block is split wherever the style changes between lines or a line
     has a wide gap (labels like "Tip 1" beside a title), so each piece can be
-    redrawn in its own place.
+    redrawn in its own place. A line that pymupdf stores as a block of its own is
+    joined to the block above when it is that block's wrapped rest (_wraps).
     """
-    blocks = []
-    for b in page.get_text("dict")["blocks"]:
-        if b["type"] != 0:
-            continue
+    def segments(ln):
+        spans = _spans(ln)
+        if not spans:
+            return []
+        segs = [[spans[0]]]
+        for s in spans[1:]:
+            gap = s["bbox"][0] - segs[-1][-1]["bbox"][2]
+            if gap > 2.5 * s["size"]:
+                segs.append([s])
+            else:
+                segs[-1].append(s)
+        return segs
+
+    text_blocks = [[segments(ln) for ln in b["lines"]]
+                   for b in page.get_text("dict")["blocks"] if b["type"] == 0]
+    edges = [(min(s["bbox"][0] for s in seg), max(s["bbox"][2] for s in seg))
+             for lines in text_blocks for segs in lines for seg in segs]
+    found = []  # every group of the page, in reading order
+    for lines in text_blocks:
         groups, cur = [], None
-        for ln in b["lines"]:
-            spans = _spans(ln)
-            if not spans:
-                continue
-            segs = [[spans[0]]]
-            for s in spans[1:]:
-                gap = s["bbox"][0] - segs[-1][-1]["bbox"][2]
-                if gap > 2.5 * s["size"]:
-                    segs.append([s])
-                else:
-                    segs[-1].append(s)
+        for segs in lines:
             for seg in segs:
                 dom = max(seg, key=lambda s: len(s["text"].strip()))
                 # size and weight only: italic or link-coloured lines stay in their paragraph
@@ -102,6 +136,10 @@ def extract_blocks(page):
                 y0 = min(s["bbox"][1] for s in seg)
                 y1 = max(s["bbox"][3] for s in seg)
                 cur = _continued(groups, style, x0, x1, y0, y1) if len(segs) == 1 else None
+                if not cur and not groups and len(segs) == 1 and found and \
+                        _wraps(found[-1], style, dom["size"], x0, y0, y1, edges, page.rect.width):
+                    cur = found[-1]
+                    groups.append(cur)  # the later lines of this block continue it too
                 if cur:
                     t = cur["text"]  # re-join wrapped lines, undoing line-end hyphens
                     cur["text"] = t[:-1] + text if t.endswith("-") and text[:1].islower() \
@@ -111,15 +149,19 @@ def extract_blocks(page):
                     cur["lines"] += 1
                     cur["x0s"].append(x0)
                     cur["last"] = (y0, y1)
+                    cur["lastx"] = (x0, x1)
                 else:
                     groups.append({"text": text, "bbox": [x0, y0, x1, y1], "size": dom["size"],
                                    "color": "#%06x" % dom["color"], "lines": 1, "x0s": [x0],
                                    "bold": bool(dom["flags"] & 16) or "bold" in dom["font"].lower(),
-                                   "style": style, "split": len(segs) > 1, "last": (y0, y1)})
-        for g in groups:
-            if has_words(g["text"]):  # skip page numbers, symbols
-                del g["style"], g["split"], g["last"]
-                blocks.append(g)
+                                   "style": style, "split": len(segs) > 1, "last": (y0, y1),
+                                   "lastx": (x0, x1)})
+        found.extend(g for g in groups if not any(g is f for f in found[-1:]))
+    blocks = []
+    for g in found:
+        if has_words(g["text"]):  # skip page numbers, symbols
+            del g["style"], g["split"], g["last"], g["lastx"]
+            blocks.append(g)
     return blocks
 
 
@@ -361,25 +403,14 @@ MIN_FONT_RATIO = 0.6  # a translation never shrinks below this fraction of the o
 KEEP = "~"  # the translator's answer for a block that is a symbol or OCR noise: keep its ink
 
 
-def render_clean_page(book, page_no, blocks, zh, target=languages.DEFAULT_TARGET):
-    """One-page PDF (bytes) for a scan: a clean white page with the translated text.
+BOOK_SIZE_SHARE = 0.1  # this share of a book's pages may be set smaller than the book's size
 
-    The page's lines, curves and symbols are kept as clean ink (figures.ink_layer);
-    the English text is dropped and its Chinese drawn on top. Each paragraph starts
-    at the height of its English paragraph and its bottom is free; table cells sit
-    in their original columns. One size factor per group keeps sizes consistent.
-    """
+
+def _clean_items(blocks, zh, pr):
+    """What a scanned page draws: (em, [(block, text, relative size, rect, centred)])."""
     import fitz
-    from .figures import ink_layer
-    rtl = languages.is_rtl(target)
     zh = [clean_text(t) for t in zh]
     drawn = [(b, t.strip()) for b, t in zip(blocks, zh) if t.strip() not in ("", KEEP)]
-    with fitz.open(str(book)) as src:
-        pr = src[page_no].rect
-        ink = ink_layer(src[page_no], [r for b, _ in drawn for r in b.get("rects", [b["bbox"]])])
-    doc = fitz.open()
-    page = doc.new_page(width=pr.width, height=pr.height)
-    page.insert_image(page.rect, stream=ink)
     body = [b for b in blocks if b["lines"] >= 3 and not b.get("cell")] \
         or [b for b in blocks if not b.get("cell")] or blocks
     em = _median([b["size"] for b in body])
@@ -406,43 +437,194 @@ def render_clean_page(book, page_no, blocks, zh, target=languages.DEFAULT_TARGET
                           and o["bbox"][1] < b["bbox"][3] and o["bbox"][3] > b["bbox"][1]]
                 x1 = max(x1, min(beside + [right]))
         items.append((b, text, rel, fitz.Rect(x0, y0 - 1, x1, max(limit, y0 + em * 1.6)), center))
+    return em, items
 
-    def draw(pg, b, text, rel, rect, center, f):
-        flow = b["lines"] >= 3 and not b.get("cell")
-        css = ("* {font-family: sans-serif; font-size: %.2fpt; color: %s; font-weight: %s; "
-               "direction: %s; text-align: %s; text-indent: %s; margin: 0; line-height: %.2f;}"
-               % (em * rel * f, b["color"], "bold" if b["bold"] else "normal",
-                  "rtl" if rtl else "ltr",
-                  "center" if center else "justify" if flow else "right" if rtl else "left",
-                  "2em" if b.get("indent") and b["lines"] >= 2 else "0", 1.5 if flow else 1.3))
-        return pg.insert_htmlbox(rect, escape(text).replace("\n", "<br>"), css=css, scale_low=1)
 
+def _draw_clean(pg, em, rtl, b, text, rel, rect, center, f):
+    flow = b["lines"] >= 3 and not b.get("cell")
+    css = ("* {font-family: sans-serif; font-size: %.2fpt; color: %s; font-weight: %s; "
+           "direction: %s; text-align: %s; text-indent: %s; margin: 0; line-height: %.2f;}"
+           % (em * rel * f, b["color"], "bold" if b["bold"] else "normal",
+              "rtl" if rtl else "ltr",
+              "center" if center else "justify" if flow else "right" if rtl else "left",
+              "2em" if b.get("indent") and b["lines"] >= 2 else "0", 1.5 if flow else 1.3))
+    return pg.insert_htmlbox(rect, escape(text).replace("\n", "<br>"), css=css, scale_low=1)
+
+
+def _fit_clean(em, items, pr, rtl):
+    """{is a table cell: the largest size factor at which every block of that kind fits}."""
+    import fitz
     scratch = fitz.open().new_page(width=pr.width, height=pr.height)
     factor = {}
     for cell in (False, True):  # table cells shrink on their own, not the whole page
         group = [it for it in items if bool(it[0].get("cell")) == cell]
         f = 1.1
-        while f > 0.6 and not all(draw(scratch, *it, f)[0] >= 0 for it in group):
+        while f > 0.6 and not all(_draw_clean(scratch, em, rtl, *it, f)[0] >= 0 for it in group):
             f -= 0.02
         factor[cell] = f
+    return factor
+
+
+def render_clean_page(book, page_no, blocks, zh, target=languages.DEFAULT_TARGET, fit=None,
+                      book_ratio=None):
+    """One-page PDF (bytes) for a scan: a clean white page with the translated text.
+
+    The page's lines, curves and symbols are kept as clean ink (figures.ink_layer);
+    the English text is dropped and its Chinese drawn on top. Each paragraph starts
+    at the height of its English paragraph and its bottom is free; table cells sit
+    in their original columns. One size factor per group keeps sizes consistent.
+    """
+    import fitz
+    from .figures import ink_layer
+    rtl = languages.is_rtl(target)
+    with fitz.open(str(book)) as src:
+        pr = src[page_no].rect
+        em, items = _clean_items(blocks, zh, pr)
+        ink = ink_layer(src[page_no], [r for b, *_ in items for r in b.get("rects", [b["bbox"]])])
+    doc = fitz.open()
+    page = doc.new_page(width=pr.width, height=pr.height)
+    page.insert_image(page.rect, stream=ink)
+    factor = fit["factor"] if fit else _fit_clean(em, items, pr, rtl)
+    factor = {cell: min(f, (book_ratio or {}).get(("scan", cell), f)) for cell, f in factor.items()}
     for it in items:
-        if draw(page, *it, factor[bool(it[0].get("cell"))])[0] < 0:  # shrink to fit
+        if _draw_clean(page, em, rtl, *it, factor[bool(it[0].get("cell"))])[0] < 0:  # shrink to fit
             print("Warning: page %d: a paragraph is too long for its space" % (page_no + 1))
             page.insert_htmlbox(it[3], escape(it[1]), scale_low=0)
     doc.subset_fonts()  # every htmlbox embeds the whole CJK font; keep only the glyphs used
     return doc.tobytes(garbage=4, deflate=True)
 
 
-def render_layout_page(book, page_no, blocks, zh, target=languages.DEFAULT_TARGET):
-    """One-page PDF (bytes): the original page with its text swapped for the translation."""
+def _style(b):
+    """The blocks that must share one size: the same original size and weight."""
+    return (round(b["size"]), bool(b["bold"]))
+
+
+def _css(b, size, center, rtl):
+    return ("* {font-family: sans-serif; font-size: %.1fpt; color: %s; "
+            "font-weight: %s; direction: %s; text-align: %s; margin: 0; line-height: 1.3;}"
+            % (size, b["color"], "bold" if b["bold"] else "normal",
+               "rtl" if rtl else "ltr", "center" if center else "right" if rtl else "left"))
+
+
+def _layout_items(page, blocks, zh):
+    """What a text page draws: [(block, rect, html, centred)], each rect with its room to grow."""
+    import fitz
+    fills = [d["rect"] for d in page.get_drawings()
+             if d.get("fill") and d["rect"].width > 20 and d["rect"].height > 20]
+    items = []
+    for b, text in zip(blocks, zh):
+        text = clean_text(text)
+        if not text.strip() or text.strip() == KEEP:
+            continue
+        rect = fitz.Rect(b["bbox"])
+        # room to grow downward (one extra line, or up to the next block)
+        below = [o["bbox"][1] for o in blocks if o is not b
+                 and o["bbox"][1] >= b["bbox"][3] - 1
+                 and o["bbox"][0] < b["bbox"][2] and o["bbox"][2] > b["bbox"][0]]
+        limit = min(below + [page.rect.y1 - 20]) - 1
+        if len(b["x0s"]) > 2 and b["x0s"][1] - min(b["x0s"]) > 3 * b["size"]:
+            rect.x0 = b["x0s"][1]  # text wrapped around a floated box: keep clear of it
+        rect.y1 = max(rect.y1, min(rect.y1 + b["size"] * 1.4, limit),
+                      rect.y0 + b["size"] * 1.6)
+        center = False
+        if b["lines"] == 1:  # Chinese glyphs are wide: let short lines grow rightwards
+            right = [o["bbox"][0] for o in blocks if o is not b
+                     and o["bbox"][0] >= b["bbox"][2]
+                     and o["bbox"][1] < b["bbox"][3] and o["bbox"][3] > b["bbox"][1]]
+            edge = [f.x1 - 4 for f in fills if f.contains(rect)]  # stay inside its panel
+            rect.x1 = max(rect.x1, min(rect.x1 + rect.width * 0.5,
+                                       min(right + edge + [page.rect.x1 - 30]) - 2))
+        if b["lines"] == 1 and b["bold"]:  # a title centred inside its box/panel stays centred
+            for f in fills:
+                if f.contains(rect) and abs((f.x0 + f.x1) / 2 - (rect.x0 + rect.x1) / 2) < 3 \
+                        and rect.width < f.width * 0.9:
+                    center = True
+                    break
+        items.append((b, rect, escape(text).replace("\n", "<br>"), center))
+    return items
+
+
+def _fit_layout(items, pr, rtl):
+    """For each item, the largest share of its original size at which it fits its rect, or
+    None when it does not fit even at MIN_FONT_RATIO."""
+    import fitz
+    scratch = fitz.open().new_page(width=pr.width, height=pr.height)
+    fitted = []
+    for b, rect, html, center in items:
+        size = b["size"]
+        while True:
+            spare, _ = scratch.insert_htmlbox(rect, html, css=_css(b, size, center, rtl), scale_low=1)
+            if spare >= 0:
+                fitted.append(size / b["size"])
+                break
+            if size <= b["size"] * MIN_FONT_RATIO:
+                fitted.append(None)
+                break
+            size -= 0.5
+    return fitted
+
+
+def _page_ratios(items, fitted):
+    """{style: the size ratio every block of that style on the page fits at}. A block too long
+    to fit even at the floor is left out: it shrinks alone without dragging the others down."""
+    out = {}
+    for (b, *_), ratio in zip(items, fitted):
+        if ratio is not None:
+            out[_style(b)] = min(out.get(_style(b), 1.0), ratio)
+    return out
+
+
+def measure_layout_page(book, page_no, blocks, zh, target=languages.DEFAULT_TARGET):
+    """How large the translation of a page can be set, without drawing it.
+
+    Returns a `fit` for render_layout_page (so the page is not measured twice); its "page"
+    entry, {style: ratio}, is what book_ratios needs from every page of the book.
+    """
+    import fitz
+    rtl = languages.is_rtl(target)
+    with fitz.open(str(book)) as doc:
+        page = doc[page_no]
+        if "indent" in blocks[0]:  # paragraph blocks of a scan
+            em, items = _clean_items(blocks, zh, page.rect)
+            factor = _fit_clean(em, items, page.rect, rtl)
+            kinds = {bool(it[0].get("cell")) for it in items}
+            return {"factor": factor, "page": {("scan", c): factor[c] for c in kinds}}
+        items = _layout_items(page, blocks, zh)
+        fitted = _fit_layout(items, page.rect, rtl)
+    return {"fitted": fitted, "page": _page_ratios(items, fitted)}
+
+
+def book_ratios(fits):
+    """One size ratio per style for the whole book, from the `fit` of every page.
+
+    Text of one style should be one size from the first page to the last. The size every
+    page could take is too small: one crowded page (a table of contents) would shrink the
+    whole book. So the book's ratio is the one that all but BOOK_SIZE_SHARE of the pages
+    fit at; those few pages are set smaller, each still at one size per style.
+    """
+    seen = {}
+    for fit in fits:
+        for style, ratio in fit["page"].items():
+            seen.setdefault(style, []).append(ratio)
+    return {style: sorted(r)[int(len(r) * BOOK_SIZE_SHARE)] for style, r in seen.items()}
+
+
+def render_layout_page(book, page_no, blocks, zh, target=languages.DEFAULT_TARGET, fit=None,
+                       book_ratio=None):
+    """One-page PDF (bytes): the original page with its text swapped for the translation.
+
+    Blocks of one style (same original size and weight) end up at one size: the smaller of
+    what this page needs and `book_ratio` (from book_ratios), so the size is the same across
+    the book wherever the page allows it. `fit` is the page's measure_layout_page result;
+    without it the page is measured here, and without `book_ratio` it is sized on its own.
+    """
     import fitz
     if "indent" in blocks[0]:  # paragraph blocks of a scan
-        return render_clean_page(book, page_no, blocks, zh, target)
+        return render_clean_page(book, page_no, blocks, zh, target, fit, book_ratio)
     with fitz.open(str(book)) as doc:
         doc.select([page_no])
         page = doc[0]
-        fills = [d["rect"] for d in page.get_drawings()
-                 if d.get("fill") and d["rect"].width > 20 and d["rect"].height > 20]
+        items = _layout_items(page, blocks, zh)  # before the text is taken off the page
         scanned = has_page_image(page)
         paper = [paper_color(page, b["bbox"]) for b in blocks] if scanned else []
         kept = [t.strip() == KEEP for t in zh]  # symbols and noise: their ink stays, nothing is drawn
@@ -458,73 +640,16 @@ def render_layout_page(book, page_no, blocks, zh, target=languages.DEFAULT_TARGE
             images=fitz.PDF_REDACT_IMAGE_PIXELS if scanned else fitz.PDF_REDACT_IMAGE_NONE,
             graphics=fitz.PDF_REDACT_LINE_ART_NONE)
         rtl = languages.is_rtl(target)
-        scratch = fitz.open().new_page(width=page.rect.width, height=page.rect.height)
-
-        def css_for(b, size, center):
-            return ("* {font-family: sans-serif; font-size: %.1fpt; color: %s; "
-                    "font-weight: %s; direction: %s; text-align: %s; margin: 0; line-height: 1.3;}"
-                    % (size, b["color"], "bold" if b["bold"] else "normal",
-                       "rtl" if rtl else "ltr", "center" if center else "right" if rtl else "left"))
-
-        items = []
-        for b, text in zip(blocks, zh):
-            text = clean_text(text)
-            if not text.strip() or text.strip() == KEEP:
-                continue
-            rect = fitz.Rect(b["bbox"])
-            # room to grow downward (one extra line, or up to the next block)
-            below = [o["bbox"][1] for o in blocks if o is not b
-                     and o["bbox"][1] >= b["bbox"][3] - 1
-                     and o["bbox"][0] < b["bbox"][2] and o["bbox"][2] > b["bbox"][0]]
-            limit = min(below + [page.rect.y1 - 20]) - 1
-            if len(b["x0s"]) > 2 and b["x0s"][1] - min(b["x0s"]) > 3 * b["size"]:
-                rect.x0 = b["x0s"][1]  # text wrapped around a floated box: keep clear of it
-            rect.y1 = max(rect.y1, min(rect.y1 + b["size"] * 1.4, limit),
-                          rect.y0 + b["size"] * 1.6)
-            center = False
-            if b["lines"] == 1:  # Chinese glyphs are wide: let short lines grow rightwards
-                right = [o["bbox"][0] for o in blocks if o is not b
-                         and o["bbox"][0] >= b["bbox"][2]
-                         and o["bbox"][1] < b["bbox"][3] and o["bbox"][3] > b["bbox"][1]]
-                edge = [f.x1 - 4 for f in fills if f.contains(rect)]  # stay inside its panel
-                rect.x1 = max(rect.x1, min(rect.x1 + rect.width * 0.5,
-                                           min(right + edge + [page.rect.x1 - 30]) - 2))
-            if b["lines"] == 1 and b["bold"]:  # a title centred inside its box/panel stays centred
-                for f in fills:
-                    if f.contains(rect) and abs((f.x0 + f.x1) / 2 - (rect.x0 + rect.x1) / 2) < 3 \
-                            and rect.width < f.width * 0.9:
-                        center = True
-                        break
-            items.append((b, rect, escape(text).replace("\n", "<br>"), center))
-
-        # Blocks of one style (same original size and weight) must end up at one size: each block
-        # finds the largest size at which it fits, the group takes the smallest of those, and a
-        # block too long to fit even at the floor shrinks alone without dragging the group down.
-        group_ratio = {}
-        fitted = []
-        for b, rect, html, center in items:
-            size = b["size"]
-            while True:
-                spare, _ = scratch.insert_htmlbox(rect, html, css=css_for(b, size, center), scale_low=1)
-                if spare >= 0:
-                    fitted.append(size / b["size"])
-                    break
-                if size <= b["size"] * MIN_FONT_RATIO:
-                    fitted.append(None)
-                    break
-                size -= 0.5
-        for (b, *_), ratio in zip(items, fitted):
-            if ratio is not None:
-                key = (round(b["size"]), bool(b["bold"]))
-                group_ratio[key] = min(group_ratio.get(key, 1.0), ratio)
+        fitted = fit["fitted"] if fit else _fit_layout(items, page.rect, rtl)
+        ratios = _page_ratios(items, fitted)
         for (b, rect, html, center), ratio in zip(items, fitted):
             if ratio is None:
-                page.insert_htmlbox(rect, html, css=css_for(b, b["size"] * MIN_FONT_RATIO, center),
+                page.insert_htmlbox(rect, html, css=_css(b, b["size"] * MIN_FONT_RATIO, center, rtl),
                                     scale_low=0)  # give up: shrink-to-fit, any size
                 print("Warning: page %d: a paragraph is too long for its space" % (page_no + 1))
                 continue
-            size = b["size"] * group_ratio[(round(b["size"]), bool(b["bold"]))]
-            page.insert_htmlbox(rect, html, css=css_for(b, size, center), scale_low=1)
+            ratio = min(ratios[_style(b)], (book_ratio or {}).get(_style(b), 1.0))
+            page.insert_htmlbox(rect, html, css=_css(b, b["size"] * ratio, center, rtl), scale_low=1)
         doc.subset_fonts()
         return doc.tobytes(garbage=4, deflate=True)
 

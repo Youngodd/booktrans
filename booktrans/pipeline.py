@@ -7,7 +7,7 @@ from pathlib import Path
 
 from . import glossary as glossary_mod
 from . import languages
-from .layout import collect_layout, render_layout_page
+from .layout import book_ratios, collect_layout, measure_layout_page, render_layout_page
 from .ocr import ocr_scanned_pages
 from .options import JobOptions
 from .readers import parse_range, read_book
@@ -251,12 +251,21 @@ def translate_book(book, out, translator, options=None, *, ocr_backend=None, pro
     original = None
     if is_pdf:  # keep the original page layout; a page range needs a trimmed copy
         original = build_source_pdf(book, idx, out) if pages or only_cached else book
+    # measure every page first, so text of one style is one size through the book
+    fits = {}
+    for k, (n, blocks) in enumerate(layout.items(), 1):
+        fits[n] = measure_layout_page(book, idx[n], blocks,
+                                      cache[cache_key(idx[n], target, True)], target)
+        if progress:
+            progress("render", k, 2 * len(layout))
+    ratios = book_ratios(fits.values())
     zh_pages = {}
     for k, (n, blocks) in enumerate(layout.items(), 1):
         zh_pages[n] = render_layout_page(book, idx[n], blocks,
-                                         cache[cache_key(idx[n], target, True)], target)
+                                         cache[cache_key(idx[n], target, True)], target,
+                                         fits.pop(n), ratios)
         if progress:
-            progress("render", k, len(layout))
+            progress("render", len(layout) + k, 2 * len(layout))
     try:
         make_pdf(texts, translations, out, original, zh_pages,
                  source=source, target=target, mode=output_mode)
