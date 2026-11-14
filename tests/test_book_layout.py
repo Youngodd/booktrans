@@ -88,3 +88,22 @@ def test_body_text_is_one_size_on_every_page(tmp_path):
     book = [sizes(render_layout_page(tmp_path / "b.pdf", n, b, zh, fit=fits[n], book_ratio=ratios))
             for n, (b, zh) in enumerate(pages)]
     assert book[0] == book[1] and len(book[0]) == 1
+
+
+def test_finishing_without_spending_leaves_out_a_page_that_no_longer_matches_its_blocks(text_pdf, tmp_path):
+    """A page translated when it was cut into a different number of blocks cannot be redrawn
+    for free; it is left out, and the rest of the book is still built."""
+    import json
+    from pypdf import PdfReader
+    from booktrans.pipeline import translate_book
+    from tests.conftest import FakeBackend
+    out = tmp_path / "o.pdf"
+    translate_book(text_pdf, out, FakeBackend())
+    cache_path = out.with_suffix(".cache.json")
+    cache = json.loads(cache_path.read_text(encoding="utf-8"))
+    cache["L1"] = cache["L1"] + ["a block that is no longer there"]
+    cache_path.write_text(json.dumps(cache), encoding="utf-8")
+    fake = FakeBackend()
+    translate_book(text_pdf, out, fake, only_cached=True)
+    assert fake.calls == []
+    assert len(PdfReader(str(out)).pages) == 4  # pages 1 and 3, each with its translation

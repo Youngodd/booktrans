@@ -222,6 +222,24 @@ def translate_book(book, out, translator, options=None, *, ocr_backend=None, pro
     # text PDFs: translate block by block and redraw the original page in Chinese
     layout, ctx = ({}, {}) if not is_pdf or flat else \
         collect_layout(book, idx, skip=scanned, progress=progress)
+    if only_cached:
+        # A page translated by an earlier version may no longer match its blocks (the way a
+        # page is cut into blocks has changed since). It cannot be redrawn without paying, so
+        # it is left out like a page that was never translated.
+        def usable(n):
+            if n in layout:
+                got = cached.get(cache_key(idx[n], target, True))
+                if isinstance(got, list) and len(got) == len(layout[n]):
+                    return True
+                del layout[n]  # its plain-text translation, if there is one, still serves
+                ctx.pop(n, None)
+            return cache_key(idx[n], target) in cached
+        keep = [n for n in range(len(idx)) if usable(n)]
+        if not keep:
+            raise ValueError("Nothing has been translated yet.")
+        layout = {k: layout[n] for k, n in enumerate(keep) if n in layout}
+        ctx = {k: ctx[n] for k, n in enumerate(keep) if n in ctx}
+        idx, texts = [idx[n] for n in keep], [texts[n] for n in keep]
 
     book_texts = list(all_pages)  # the whole book, with the OCR text of the chosen pages
     for k, i in enumerate(idx):
