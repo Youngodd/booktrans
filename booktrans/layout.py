@@ -357,6 +357,7 @@ def paper_color(page, bbox):
     return tuple(ch[len(ch) // 2] / 255 for ch in chans)
 
 
+MIN_FONT_RATIO = 0.6  # a translation never shrinks below this fraction of the original size
 KEEP = "~"  # the translator's answer for a block that is a symbol or OCR noise: keep its ink
 
 
@@ -457,6 +458,15 @@ def render_layout_page(book, page_no, blocks, zh, target=languages.DEFAULT_TARGE
             images=fitz.PDF_REDACT_IMAGE_PIXELS if scanned else fitz.PDF_REDACT_IMAGE_NONE,
             graphics=fitz.PDF_REDACT_LINE_ART_NONE)
         rtl = languages.is_rtl(target)
+        scratch = fitz.open().new_page(width=page.rect.width, height=page.rect.height)
+
+        def css_for(b, size, center):
+            return ("* {font-family: sans-serif; font-size: %.1fpt; color: %s; "
+                    "font-weight: %s; direction: %s; text-align: %s; margin: 0; line-height: 1.3;}"
+                    % (size, b["color"], "bold" if b["bold"] else "normal",
+                       "rtl" if rtl else "ltr", "center" if center else "right" if rtl else "left"))
+
+        items = []
         for b, text in zip(blocks, zh):
             text = clean_text(text)
             if not text.strip() or text.strip() == KEEP:
@@ -485,21 +495,36 @@ def render_layout_page(book, page_no, blocks, zh, target=languages.DEFAULT_TARGE
                             and rect.width < f.width * 0.9:
                         center = True
                         break
-            html = escape(text).replace("\n", "<br>")
+            items.append((b, rect, escape(text).replace("\n", "<br>"), center))
+
+        # Blocks of one style (same original size and weight) must end up at one size: each block
+        # finds the largest size at which it fits, the group takes the smallest of those, and a
+        # block too long to fit even at the floor shrinks alone without dragging the group down.
+        group_ratio = {}
+        fitted = []
+        for b, rect, html, center in items:
             size = b["size"]
-            while True:  # largest size (down to 60%) at which the text fits the box
-                css = ("* {font-family: sans-serif; font-size: %.1fpt; color: %s; "
-                       "font-weight: %s; direction: %s; text-align: %s; margin: 0; line-height: 1.3;}"
-                       % (size, b["color"], "bold" if b["bold"] else "normal",
-                          "rtl" if rtl else "ltr",
-                          "center" if center else "right" if rtl else "left"))
-                spare, _ = page.insert_htmlbox(rect, html, css=css, scale_low=1)
+            while True:
+                spare, _ = scratch.insert_htmlbox(rect, html, css=css_for(b, size, center), scale_low=1)
                 if spare >= 0:
+                    fitted.append(size / b["size"])
                     break
-                if size <= b["size"] * 0.6:  # give up: shrink-to-fit, any size
-                    page.insert_htmlbox(rect, html, css=css, scale_low=0)
+                if size <= b["size"] * MIN_FONT_RATIO:
+                    fitted.append(None)
                     break
                 size -= 0.5
+        for (b, *_), ratio in zip(items, fitted):
+            if ratio is not None:
+                key = (round(b["size"]), bool(b["bold"]))
+                group_ratio[key] = min(group_ratio.get(key, 1.0), ratio)
+        for (b, rect, html, center), ratio in zip(items, fitted):
+            if ratio is None:
+                page.insert_htmlbox(rect, html, css=css_for(b, b["size"] * MIN_FONT_RATIO, center),
+                                    scale_low=0)  # give up: shrink-to-fit, any size
+                print("Warning: page %d: a paragraph is too long for its space" % (page_no + 1))
+                continue
+            size = b["size"] * group_ratio[(round(b["size"]), bool(b["bold"]))]
+            page.insert_htmlbox(rect, html, css=css_for(b, size, center), scale_low=1)
         doc.subset_fonts()
         return doc.tobytes(garbage=4, deflate=True)
 
