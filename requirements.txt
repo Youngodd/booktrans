@@ -9,3 +9,4 @@ openai
 opencv-python-headless
 fonttools
 charset-normalizer
+python-docx

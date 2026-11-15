@@ -28,6 +28,7 @@ class JobOptions:
     source: str = "auto"                 # language code of the book, or "auto" (detected)
     target: str = languages.DEFAULT_TARGET  # language code to translate into
     output_mode: str = "bilingual"       # or "target-only"
+    output_format: str = "pdf"           # or "epub", "docx", "md"
     state: Optional[Path] = None         # the file the cache, OCR and glossary names are built from
 
     def __post_init__(self):
@@ -35,6 +36,7 @@ class JobOptions:
         put(self, "source", languages.check_source(self.source))
         put(self, "target", languages.check_target(self.target))
         languages.check_mode(self.output_mode)
+        languages.check_format(self.output_format)
         if self.refresh_glossary and self.only_cached:
             raise ValueError("Re-translating pages and finishing without spending cannot be combined.")
         for name in ("glossary_file", "state"):

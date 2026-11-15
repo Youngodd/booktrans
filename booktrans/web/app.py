@@ -16,7 +16,8 @@ from pydantic import BaseModel
 
 from ..backends import catalog
 from ..backends.base import AuthError, BackendError
-from ..pipeline import detect_book_language, glossary_changes, glossary_path, total_pages
+from ..pipeline import INPUTS, detect_book_language, glossary_changes, glossary_path, total_pages
+from ..recommend import recommend
 from .. import languages
 from ..readers import parse_range
 from .. import glossary as glossary_mod
@@ -26,7 +27,8 @@ from .jobs import JobStore
 
 STATIC = Path(__file__).parent / "static"
 LANGS = ("en", "zh")  # one page per language; the switch in the header links to the other
-EXTENSIONS = (".pdf", ".epub", ".txt")
+EXTENSIONS = INPUTS  # .pdf, .epub, .txt, .docx, .md
+UPLOAD_HINT = "Upload a PDF, EPUB, Word (.docx), Markdown or text file."
 EST_COST_PER_PAGE = 0.017  # USD on the Anthropic API, measured on a scanned history book
 ACTIVE = ("queued", "running")
 MAX_GLOSSARY_ENTRIES = 500
@@ -49,6 +51,7 @@ class StartRequest(BaseModel):
     source: str = "auto"              # language of the book; auto = the detected one
     target: str = languages.DEFAULT_TARGET  # language to translate into (a code of /api/config languages)
     output_mode: str = "bilingual"    # or "target-only": only the translated pages
+    output_format: str = "pdf"        # or "epub", "docx", "md"
     refresh_glossary: bool = False    # translate again the pages whose glossary entries were edited
 
 
@@ -91,11 +94,10 @@ def content_disposition(name):
     return f"attachment; filename=\"{plain}\"; filename*=utf-8''{quote(name)}"
 
 
-def download_name(job):
-    """`<book>_bilingual.pdf`, or `<book>_<target>.pdf` for a translation-only PDF."""
-    stem = Path(job["filename"]).stem or "book"
-    tag = job.get("target", languages.DEFAULT_TARGET) if job.get("output_mode") == "target-only" else "bilingual"
-    return f"{stem}_{tag}.pdf"
+def download_name(job, ext=None):
+    """`<book>_bilingual.pdf`, or `<book>_<target>.pdf` for a translation-only one, with the
+    extension of the job's output format (or `ext`)."""
+    return jobs.result_name(job, ext or job.get("output_format", "pdf"))
 
 
 def _setting(value, env, default):
@@ -196,12 +198,18 @@ def create_app(data_dir=None, *, executor=None, backend_factory=jobs.default_bac
         keys = ("id", "filename", "state", "stage", "done", "total", "error", "error_code", "error_detail", "pages_total",
                 "range", "preview", "usage", "email_state", "glossary_state", "glossary_error",
                 "glossary_count", "auto_glossary", "spent_cny", "spend_limit", "est_rest_cny",
-                "partial", "detected_language", "source", "target", "output_mode",
+                "partial", "detected_language", "source", "target", "output_mode", "output_format", "recommended",
                 "provider", "model", "ocr_model", "ocr")
         approx = spend.price_approx(job.get("provider", ""), job.get("model", ""),
                                     job.get("ocr_model", ""), job.get("ocr", False))
-        return {k: job[k] for k in keys if k in job} | {"est_cost_per_page": EST_COST_PER_PAGE,
-                                                        "price_approx": approx}
+        out = {k: job[k] for k in keys if k in job} | {"est_cost_per_page": EST_COST_PER_PAGE,
+                                                       "price_approx": approx}
+        if job.get("state") == "done":
+            try:  # what the download is called: its extension depends on the format
+                out["download_name"] = download_name(job, jobs.result_file(store.dir(job["id"]), job)[1])
+            except OSError:
+                pass
+        return out
 
     @app.post("/api/login")
     def login(req: LoginRequest):
@@ -296,7 +304,7 @@ def create_app(data_dir=None, *, executor=None, backend_factory=jobs.default_bac
     async def upload(file: UploadFile = File(...), viewer: str = Depends(who)):
         ext = Path(file.filename or "").suffix.lower()
         if ext not in EXTENSIONS:
-            raise HTTPException(400, "Upload a .pdf, .epub or .txt file.")
+            raise HTTPException(400, UPLOAD_HINT)
         job_id = store.new(file.filename, ocr=False, range="", pages_total=0,
                            owner=viewer or "")
         path = store.dir(job_id) / ("input" + ext)
@@ -316,7 +324,8 @@ def create_app(data_dir=None, *, executor=None, backend_factory=jobs.default_bac
         except Exception:
             store.delete(job_id)
             raise HTTPException(400, "This file could not be read as a book.")
-        store.write(job_id, pages_total=n, detected_language=detect_language_of(path))
+        language = detect_language_of(path)
+        store.write(job_id, pages_total=n, detected_language=language, recommended=recommended_for(path, n, language))
         return public(store.read(job_id))
 
     @app.get("/api/jobs/{job_id}")
@@ -330,8 +339,16 @@ def create_app(data_dir=None, *, executor=None, backend_factory=jobs.default_bac
         except Exception:  # detection is a convenience; the user can still choose
             return ""
 
-    def check_languages(source, target, mode="bilingual"):
+    def recommended_for(path, total, language):
+        """Suggested settings for the uploaded book, with reasons ({} if they cannot be worked out)."""
         try:
+            return recommend(path, total, language)
+        except Exception:  # a convenience: the upload must not fail over it
+            return {}
+
+    def check_languages(source, target, mode="bilingual", fmt="pdf"):
+        try:
+            languages.check_format(fmt)
             return languages.check_source(source), languages.check_target(target), languages.check_mode(mode)
         except ValueError as e:
             raise HTTPException(400, str(e))
@@ -509,12 +526,12 @@ def create_app(data_dir=None, *, executor=None, backend_factory=jobs.default_bac
         rng = resolve_range(job, req.pages, req.preview)
         provider = provider_for(req)
         model, ocr_model = check_models(provider, req.model, req.ocr_model, req.ocr)
-        source, target, mode = check_languages(req.source, req.target, req.output_mode)
+        source, target, mode = check_languages(req.source, req.target, req.output_mode, req.output_format)
         (store.dir(job_id) / "cancel").unlink(missing_ok=True)  # a Cancel that came too late must not stop this run
         store.write(job_id, state="queued", provider=provider, model=model, ocr_model=ocr_model, stage="", done=0, total=0, error="", ocr=req.ocr,
                     range=rng, preview=req.preview, started=time.time(), email=email,
                     email_state="", auto_glossary=req.auto_glossary, spend_limit=limit,
-                    source=source, target=target, output_mode=mode,
+                    source=source, target=target, output_mode=mode, output_format=req.output_format,
                     only_cached=req.only_cached, partial=False, spent_cny=round(spent, 4),
                     refresh_glossary=req.refresh_glossary,
                     est_rest_cny=None)
@@ -534,7 +551,7 @@ def create_app(data_dir=None, *, executor=None, backend_factory=jobs.default_bac
         env = cloud_env(request)
         ext = Path(req.filename).suffix.lower()
         if ext not in EXTENSIONS:
-            raise HTTPException(400, "Upload a .pdf, .epub or .txt file.")
+            raise HTTPException(400, UPLOAD_HINT)
         job_id = store.new(req.filename, ocr=False, range="", pages_total=0, owner=viewer or "")
         path = store.dir(job_id) / ("input" + ext)
         try:
@@ -550,34 +567,35 @@ def create_app(data_dir=None, *, executor=None, backend_factory=jobs.default_bac
         except Exception:
             store.delete(job_id)
             raise HTTPException(400, "This file could not be read as a book.")
-        store.write(job_id, pages_total=n, detected_language=detect_language_of(path))
+        language = detect_language_of(path)
+        store.write(job_id, pages_total=n, detected_language=language, recommended=recommended_for(path, n, language))
         return public(store.read(job_id))
 
     @app.get("/api/jobs/{job_id}/result")
     def result(job_id: str, request: Request, viewer: str = Depends(who)):
-        """Put the finished PDF in cloud storage and return its file id for wx.cloud.downloadFile."""
+        """Put the finished book in cloud storage and return its file id for wx.cloud.downloadFile."""
         job = get_job(job_id, viewer)
-        out = store.dir(job_id) / "output.pdf"
-        if job["state"] != "done" or not out.exists():
+        if job["state"] != "done" or not jobs.output_path(store.dir(job_id), job).exists():
             raise HTTPException(409, "The translation is not finished.")
+        out, ext, _ = jobs.result_file(store.dir(job_id), job)
         env = cloud_env(request)
         if not job.get("result_file_id"):
             try:
-                file_id = cloud.upload(env, out, f"results/{job_id}.pdf")
+                file_id = cloud.upload(env, out, f"results/{job_id}.{ext}")
             except cloud.CloudError:
                 raise HTTPException(502, "Could not store the finished PDF. Try again.")
             store.write(job_id, result_file_id=file_id, env=env)
             job["result_file_id"] = file_id
-        return {"file_id": job["result_file_id"], "filename": download_name(job)}
+        return {"file_id": job["result_file_id"], "filename": download_name(job, ext)}
 
     @app.get("/api/jobs/{job_id}/download")
     def download(job_id: str, viewer: str = Depends(who)):
         job = get_job(job_id, viewer)
-        out = store.dir(job_id) / "output.pdf"
-        if job["state"] != "done" or not out.exists():
+        if job["state"] != "done" or not jobs.output_path(store.dir(job_id), job).exists():
             raise HTTPException(409, "The translation is not finished.")
-        return FileResponse(out, media_type="application/pdf",
-                            filename=download_name(job),
+        out, ext, media = jobs.result_file(store.dir(job_id), job)
+        return FileResponse(out, media_type=media,
+                            filename=download_name(job, ext),
                             headers={"Cache-Control": "no-store"})
 
     @app.delete("/api/jobs/{job_id}")

@@ -30,10 +30,28 @@ def reflow(text):
     return "\n\n".join(paras)
 
 
+MIN_PAGE_CHARS = 20  # a page with less text than this is looked at again
+
+
 def read_pdf(path):
+    """The text of each page. A page pypdf finds (almost) nothing on is read again with
+    pymupdf: pypdf does not see text drawn inside a form (every page this program has redrawn
+    is made that way), and such a page would pass for a scan and be left untranslated."""
     from pypdf import PdfReader
     reader = PdfReader(str(path))
-    return [reflow(page_text(p)) for p in reader.pages]
+    pages = [reflow(page_text(p)) for p in reader.pages]
+    short = [i for i, t in enumerate(pages) if len(t.strip()) < MIN_PAGE_CHARS]
+    if short:
+        try:
+            import fitz
+            with fitz.open(str(path)) as doc:
+                for i in short:
+                    text = reflow("\n\n".join(b[4] for b in doc[i].get_text("blocks") if b[6] == 0))
+                    if len(text.strip()) > len(pages[i].strip()):
+                        pages[i] = text
+        except Exception:  # the second look is a help; pypdf's reading stands
+            pass
+    return pages
 
 
 def page_text(page):

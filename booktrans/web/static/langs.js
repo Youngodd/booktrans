@@ -38,11 +38,58 @@ function showDetected(job) {
   src.value = "auto";
   avoidSameLanguage(job && job.detected_language);
   hint.textContent = name ? T.detected(name) : T.notDetected;
+  showRecommended(job);
+}
+
+/* Suggested settings for the uploaded book (job.recommended): the controls are filled in once, right
+   after the upload, and the reasons are listed. Nothing is applied later, so a choice the user has
+   made is never overwritten. */
+const REC_ZH = document.documentElement.lang.startsWith("zh");
+const REC_TEXT = REC_ZH
+  ? { title: "建议的设置（都可以修改）：", source: "书的语言", target: "翻译成", ocr: "OCR", output_format: "输出格式",
+      output_mode: "输出内容", pages: "页码范围", review_names: "先核对名称", on: "开启", off: "不需要",
+      bilingual: "双语对照", "target-only": "仅译文" }
+  : { title: "Suggested settings (you can change any of them):", source: "Book language", target: "Translate into",
+      ocr: "OCR", output_format: "Output format", output_mode: "Output", pages: "Page range",
+      review_names: "Review names first", on: "on", off: "not needed", bilingual: "bilingual", "target-only": "translation only" };
+let REC_APPLIED = "";
+function showRecommended(job) {
+  const box = document.getElementById("recommended"), rec = job && job.recommended;
+  if (!box) return;
+  const s = (rec && rec.settings) || {}, why = (rec && rec.reasons) || {};
+  const names = Object.keys(s);
+  box.classList.toggle("hidden", !names.length || job.state !== "uploaded");
+  if (!names.length || job.state !== "uploaded") return;
+  const el = (id) => document.getElementById(id);
+  if (REC_APPLIED !== job.id) {  // once per book
+    REC_APPLIED = job.id;
+    const pick = (id, v) => { const c = el(id); if (c && [...c.options].some((o) => o.value === v)) c.value = v; };
+    if (s.target) pick("target", s.target);
+    if (s.output_format) pick("output-format", s.output_format);
+    if (s.output_mode) pick("output-mode", s.output_mode);
+    if (s.pages && el("pages") && !el("pages").value.trim()) el("pages").value = s.pages;
+    if ("ocr" in s && el("ocr") && !el("ocr").disabled) el("ocr").checked = !!s.ocr;
+    if (s.review_names && el("review")) el("review").checked = true;
+    for (const id of ["pages", "ocr", "output-format"]) if (el(id)) el(id).dispatchEvent(new Event(id === "pages" ? "input" : "change"));
+  }
+  const shown = (k, v) => k === "source" || k === "target" ? langName(v)
+    : typeof v === "boolean" ? (v ? REC_TEXT.on : REC_TEXT.off)
+    : k === "output_format" ? v.toUpperCase() : REC_TEXT[v] || v;
+  box.textContent = "";
+  const head = document.createElement("strong"); head.textContent = REC_TEXT.title; box.appendChild(head);
+  const list = document.createElement("ul");
+  for (const k of names) {
+    const li = document.createElement("li"), r = why[k] || {};
+    li.textContent = (REC_TEXT[k] || k) + ": " + shown(k, s[k]) + " — " + ((REC_ZH ? r.zh : r.en) || "");
+    list.appendChild(li);
+  }
+  box.appendChild(list);
 }
 
 function languageFields() {
   return { source: document.getElementById("source").value, target: document.getElementById("target").value,
-           output_mode: document.getElementById("output-mode").value };
+           output_mode: document.getElementById("output-mode").value,
+           output_format: document.getElementById("output-format").value };
 }
 
 /* The read-only summary of what a book was submitted with, shown on the progress card so the
@@ -73,6 +120,7 @@ function fillRunInfo(j) {
 }
 
 function downloadName(job) {
+  if (job.download_name) return job.download_name;  // the server knows the format (Markdown with pictures is a zip)
   const stem = (job.filename || "book").replace(/\.[^.]+$/, "");
-  return stem + "_" + (job.output_mode === "target-only" ? job.target || "translation" : "bilingual") + ".pdf";
+  return stem + "_" + (job.output_mode === "target-only" ? job.target || "translation" : "bilingual") + "." + (job.output_format || "pdf");
 }

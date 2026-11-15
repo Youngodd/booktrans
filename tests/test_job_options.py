@@ -18,7 +18,7 @@ def test_the_defaults_are_the_ones_translate_book_always_had():
     assert dataclasses.asdict(JobOptions()) == {
         "pages": None, "redo": None, "flat": False, "glossary_file": None, "auto_glossary": True,
         "only_cached": False, "refresh_glossary": False, "source": "auto", "target": "zh-CN",
-        "output_mode": "bilingual", "state": None}
+        "output_mode": "bilingual", "output_format": "pdf", "state": None}
 
 
 def test_values_are_normalised_and_checked_when_the_options_are_made():

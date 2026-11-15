@@ -31,8 +31,8 @@
     <p class="lead">Upload a book, bring your own API key, choose the languages, and receive one PDF that keeps the original layout —
        paragraphs, tables, figures and all.</p>
     <dl class="facts">
-      <div><dt>Formats</dt><dd>PDF · EPUB · TXT</dd></div>
-      <div><dt>Output</dt><dd>Bilingual or translation-only PDF</dd></div>
+      <div><dt>Formats</dt><dd>PDF · EPUB · Word · Markdown · TXT</dd></div>
+      <div><dt>Output</dt><dd>Bilingual or translation-only, as PDF, EPUB, Word or Markdown</dd></div>
       <div><dt>Your key</dt><dd>Memory only, never stored</dd></div>
       <div><dt>Files</dt><dd>Deleted after 24 h</dd></div>
     </dl>
@@ -40,8 +40,8 @@
 
   <section class="step" id="step-upload">
     <header><span class="no">§ 01</span><h2>Upload</h2></header>
-    <input type="file" id="file" accept=".pdf,.epub,.txt">
-    <p class="hint">PDF / EPUB / TXT, ≤ <span id="maxmb">60</span> MB</p>
+    <input type="file" id="file" accept=".pdf,.epub,.txt,.docx,.md,.markdown">
+    <p class="hint">PDF / EPUB / Word / Markdown / TXT, ≤ <span id="maxmb">60</span> MB</p>
     <div class="bar hidden" id="upbar"><div></div></div>
     <p class="msg" id="upmsg"></p>
   </section>
@@ -49,6 +49,7 @@
   <section class="step hidden" id="step-setup">
     <header><span class="no">§ 02</span><h2>Settings</h2></header>
     <p id="bookinfo"></p>
+    <div class="hint hidden" id="recommended"></div>
     <p class="msg err hidden" id="insecure">This page is not using HTTPS, so your key would travel unencrypted. Do not enter a real key here.</p>
     <label for="provider">Model provider</label>
     <select id="provider">
@@ -65,7 +66,14 @@
     <p class="hint" id="detected"></p>
     <label for="target">Translate into</label>
     <select id="target"></select>
-    <label for="output-mode">Output PDF</label>
+    <label for="output-format">Output format</label>
+    <select id="output-format">
+      <option value="pdf">PDF</option>
+      <option value="epub">EPUB</option>
+      <option value="docx">Word (.docx)</option>
+      <option value="md">Markdown (.md)</option>
+    </select>
+    <label for="output-mode">Output</label>
     <select id="output-mode">
       <option value="bilingual">Bilingual: each original page, then its translation</option>
       <option value="target-only">Translation only</option>
@@ -94,7 +102,7 @@
     <p class="msg" id="stage"></p>
     <p class="msg err" id="runerr"></p>
     <div class="actions">
-      <a class="btn hidden" id="download" href="#">Download PDF</a>
+      <a class="btn hidden" id="download" href="#">Download file</a>
       <button class="secondary hidden" id="btn-again">Run again</button>
       <button class="secondary hidden" id="btn-delete">Delete my files</button>
     </div>

@@ -5,6 +5,7 @@ translation cache and job.json (the state shown to the browser). The folder name
 is a random id that acts as the access token. API keys are only passed to the
 worker in memory; they are never written to disk.
 """
+import dataclasses
 import json
 import os
 import re
@@ -252,8 +253,51 @@ def job_options(job):
     then JobOptions' default applies, so no default is repeated here."""
     from ..options import JobOptions
     kw = {key: job[key] for key in ("auto_glossary", "only_cached", "refresh_glossary", "source", "target",
-                                    "output_mode") if key in job}
+                                    "output_mode", "output_format") if key in job}
     return JobOptions(pages=job["range"], **kw)
+
+
+MEDIA_TYPES = {"pdf": "application/pdf", "epub": "application/epub+zip", "md": "text/markdown; charset=utf-8",
+               "docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+               "zip": "application/zip"}
+STATE_NAME = "output.pdf"  # the cache, glossary and spend files of a job are named after it, whatever the format
+
+
+def output_path(path, job):
+    """The file a job's translation is written to: `output.<format>` in its folder `path`."""
+    return Path(path) / ("output." + job.get("output_format", "pdf"))
+
+
+def result_file(path, job):
+    """(file, extension, media type) of what the user downloads.
+
+    That is the output file, except for Markdown with pictures: one download cannot carry the
+    pictures folder, so the text and its pictures go into a zip, named after the book.
+    """
+    from ..blockwriters import assets_dir_of
+    out = output_path(path, job)
+    fmt = out.suffix[1:]
+    pictures = assets_dir_of(out)
+    if fmt != "md" or not pictures.is_dir():
+        return out, fmt, MEDIA_TYPES[fmt]
+    import zipfile
+    stem = Path(result_name(job, "md")).stem
+    packed = out.with_suffix(".zip")
+    if not packed.exists() or packed.stat().st_mtime < out.stat().st_mtime:
+        with zipfile.ZipFile(packed, "w", zipfile.ZIP_DEFLATED) as z:
+            text = out.read_text(encoding="utf-8").replace(f"]({pictures.name}/", f"]({stem}_assets/")
+            z.writestr(f"{stem}.md", text)
+            for f in sorted(pictures.iterdir()):
+                z.write(f, f"{stem}_assets/{f.name}")
+    return packed, "zip", MEDIA_TYPES["zip"]
+
+
+def result_name(job, ext):
+    """`<book>_bilingual.<ext>`, or `<book>_<target>.<ext>` for a translation-only result."""
+    from .. import languages
+    stem = Path(job["filename"]).stem or "book"
+    tag = job.get("target", languages.DEFAULT_TARGET) if job.get("output_mode") == "target-only" else "bilingual"
+    return f"{stem}_{tag}.{ext}"
 
 
 def run_job(root, job_id, api_key, backend_factory=default_backend, provider="api",
@@ -281,16 +325,17 @@ def run_job(root, job_id, api_key, backend_factory=default_backend, provider="ap
         store.write(job_id, state="running", stage="scan", done=0, total=0, error="")
         translator = NoCalls() if job.get("only_cached") else backend_factory(api_key, provider, **_chosen(job, job["ocr"]))
         options = job_options(job)
-        translate_book(path / ("input" + job["ext"]), path / "output.pdf", translator, options,
+        if options.output_format != "pdf":  # the cache stays next to output.pdf, shared by every format
+            options = dataclasses.replace(options, state=path / STATE_NAME)
+        translate_book(path / ("input" + job["ext"]), output_path(path, job), translator, options,
                        ocr_backend=translator if job["ocr"] else None, progress=progress, meter=meter)
         store.write(job_id, state="done", stage="done", usage=translator.usage.as_dict(),
                     finished=time.time(), spent_cny=round(meter.spent, 4),
                     partial=bool(job.get("only_cached", False)))
         if send_mail and job.get("email"):
             try:
-                stem = Path(job["filename"]).stem or "book"
-                tag = "bilingual" if options.output_mode == "bilingual" else options.target
-                send_mail(job["email"], path / "output.pdf", f"{stem}_{tag}.pdf")
+                file, ext, _ = result_file(path, job)
+                send_mail(job["email"], file, result_name(job, ext))
                 store.write(job_id, email_state="sent")
             except Exception:  # the PDF is still downloadable; just record the failure
                 store.write(job_id, email_state="failed")

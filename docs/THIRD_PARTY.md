@@ -16,6 +16,17 @@ The compatibility column is a rough guide from the license name, not legal advic
   clr-loader, cffi, pycparser and pywin32-ctypes, which are not in this list because it was generated on macOS;
   they are expected to be MIT or BSD but have not been checked.
 
+## Added 2026-11-15 (Word input and output)
+
+| Package | Version | License (from metadata) | AGPL-3.0 compatible? |
+| --- | --- | --- | --- |
+| python-docx | 1.2.0 | MIT | yes |
+| lxml | 6.1.3 | BSD-3-Clause | yes |
+
+Read from `pip show` on the macOS development environment, not from each project's repository. `lxml` bundles
+libxml2 and libxslt (MIT) in its wheel; not checked beyond that. typing_extensions (PSF) was already present.
+Re-run `packaging/third_party.py` before a release so the full table below includes them.
+
 ## Fonts
 
 Output pages are drawn with MuPDF's built-in fonts (inside the PyMuPDF wheel), chosen per character, so no

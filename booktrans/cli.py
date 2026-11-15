@@ -10,8 +10,9 @@ from .backends.base import BackendError
 from . import languages
 from . import glossary as glossary_mod
 from .options import JobOptions
-from .pipeline import MIN_TEXT_CHARS, default_output, draft_glossary, glossary_changes, glossary_path, translate_book
-from .readers import parse_range, read_book
+from .pipeline import (MIN_TEXT_CHARS, book_pages, default_output, draft_glossary, glossary_changes,
+                       glossary_path, translate_book)
+from .readers import parse_range
 from .spend import DEFAULT_LIMIT_CNY, Meter, SpendLimitReached, est_cny_per_page, rest_estimate
 from .usage import Usage
 
@@ -62,6 +63,13 @@ def parse_args():
     ap.add_argument("--output-mode", choices=languages.OUTPUT_MODES, default="bilingual",
                     help="bilingual: each original page then its translation (default); "
                          "target-only: only the translated pages")
+    ap.add_argument("--to", choices=languages.OUTPUT_FORMATS, default=None, metavar="FORMAT",
+                    help="output format: pdf, epub, docx or md (default: from the -o file name, else pdf). "
+                         "A PDF written as PDF keeps its page layout, and an EPUB written as EPUB its "
+                         "styles; any other pair carries the text, pictures and tables over in order")
+    ap.add_argument("--recommend", action="store_true",
+                    help="look at the book, print the settings suggested for it with their reasons, and stop "
+                         "(no model call, nothing is spent)")
     ap.add_argument("--backend", choices=list(BACKENDS), default="claude-cli",
                     help="claude-cli uses your Claude Code login (default); "
                          "api needs ANTHROPIC_API_KEY; qwen, qwen-intl, deepseek, "
@@ -150,7 +158,8 @@ def job_options(args, state):
     """The settings of this run, from the command line."""
     return JobOptions(pages=args.pages, redo=args.redo, flat=args.flat, glossary_file=args.glossary,
                       auto_glossary=not args.no_auto_glossary, source=args.source, target=args.target,
-                      output_mode=args.output_mode, state=state, refresh_glossary=args.apply_glossary)
+                      output_mode=args.output_mode, output_format=args.to, state=state,
+                      refresh_glossary=args.apply_glossary)
 
 
 def only_translated(options):
@@ -201,6 +210,27 @@ def confirm_apply(args, out, state):
     return True
 
 
+FLAGS = {"source": "--source", "target": "--target", "ocr": "--ocr", "output_format": "--to",
+         "output_mode": "--output-mode", "pages": "--pages", "review_names": "--export-glossary names.txt"}
+
+
+def print_recommended(book):
+    """The settings suggested for `book`, one per line with its reason and the option that sets it."""
+    from .pipeline import detect_book_language, total_pages
+    from .recommend import recommend
+    try:
+        total, language = total_pages(book), detect_book_language(book) or ""
+    except Exception as e:
+        sys.exit(f"This file could not be read as a book: {e}")
+    got = recommend(book, total, language)
+    print(f"{book.name}: {total} pages. Suggested settings (nothing was spent):")
+    for name, value in got["settings"].items():
+        flag = FLAGS[name] if isinstance(value, bool) else f"{FLAGS[name]} {value}"
+        if value is False:
+            flag = "no " + FLAGS[name]
+        print(f"  {flag:<30} {got['reasons'][name]['en']}")
+
+
 def run(args):
     if args.apply_glossary and args.finish_partial:
         sys.exit("--apply-glossary translates pages again; it cannot be combined with --finish-partial.")
@@ -208,6 +238,9 @@ def run(args):
         sys.exit(f"No such file: {args.book}")
     if args.glossary and not args.glossary.is_file():
         sys.exit(f"No such glossary file: {args.glossary}")
+    if args.recommend:
+        print_recommended(args.book)
+        return
     usage = Usage()
     is_pdf = args.book.suffix.lower() == ".pdf"
 
@@ -223,17 +256,21 @@ def run(args):
             sys.exit(f"--ocr needs a vision-capable backend; "
                      f"{type(ocr_backend).__name__} has none. Try --ocr-backend.")
 
-    pages = read_book(args.book)
+    pages = book_pages(args.book)
     idx = parse_range(args.pages, len(pages))
     scanned = [i for i in idx if len(pages[i].strip()) < MIN_TEXT_CHARS] if is_pdf else []
     if scanned and not args.ocr:
         print(f"Warning: {len(scanned)} of {len(idx)} pages have no text layer "
               "(scanned?). Re-run with --ocr to read them.", file=sys.stderr)
 
-    out = args.output or default_output(args.book, args.pages, args.output_mode, args.target)
+    fmt = args.to or (args.output.suffix.lower().lstrip(".") if args.output else "pdf")
+    if fmt not in languages.OUTPUT_FORMATS:
+        sys.exit(f"Cannot write {fmt!r}: the output is one of {', '.join(languages.OUTPUT_FORMATS)} (see --to).")
+    args.to = fmt
+    out = args.output or default_output(args.book, args.pages, args.output_mode, args.target, fmt)
     # cache, OCR text and glossary sit next to the bilingual name whatever the mode, so
     # changing only --output-mode re-uses every page already translated
-    state = args.output or default_output(args.book, args.pages)
+    state = args.output.with_suffix(".pdf") if args.output else default_output(args.book, args.pages)
     options = job_options(args, state)
     if args.export_glossary:
         export_glossary(args, translator, state)

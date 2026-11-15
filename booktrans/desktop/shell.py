@@ -221,8 +221,10 @@ class Api:
     def save_pdf(self, job_id, suggested_name):
         """Ask where to save the finished PDF, then copy it there."""
         import webview
+        ext = Path(suggested_name).suffix.lstrip(".").lower() or "pdf"
+        kinds = {"pdf": "PDF", "epub": "EPUB", "docx": "Word", "md": "Markdown", "zip": "Zip"}
         dest = self._window.create_file_dialog(webview.SAVE_DIALOG, save_filename=suggested_name,
-                                              file_types=("PDF (*.pdf)",))
+                                              file_types=(f"{kinds.get(ext, ext.upper())} (*.{ext})",))
         if not dest:
             return {"ok": False}
         dest = dest if isinstance(dest, str) else dest[0]

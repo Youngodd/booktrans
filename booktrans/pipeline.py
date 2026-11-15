@@ -3,8 +3,10 @@
 Used by the command line (cli.py) and callable from other programs, such as a web
 service. Nothing here prints or exits; progress goes to an optional callback.
 """
+import tempfile
 from pathlib import Path
 
+from . import blocks as blocks_mod
 from . import glossary as glossary_mod
 from . import languages
 from .layout import book_ratios, collect_layout, measure_layout_page, render_layout_page
@@ -12,7 +14,11 @@ from .ocr import ocr_scanned_pages
 from .options import JobOptions
 from .readers import parse_range, read_book
 from .spend import Metered, NoCalls, SpendLimitReached
-from .translate import cache_key, load_cache, stale_positions, translate_all
+from .blockreaders import read_blocks
+from .blockwriters import write_blocks
+from .pdfblocks import pdf_blocks
+from .translate import (cache_key, is_stale, load_cache, stale_positions, translate_all,
+                        translate_units, unit_cached, unit_key)
 from .writer import make_pdf
 
 class Cancelled(Exception):
@@ -20,15 +26,41 @@ class Cancelled(Exception):
 
 
 MIN_TEXT_CHARS = 20  # PDF pages with less text than this are treated as scans
+BLOCK_INPUTS = (".docx", ".md", ".markdown")  # read as blocks only (blockreaders.py)
+INPUTS = (".pdf", ".epub", ".txt") + BLOCK_INPUTS
+MARKDOWN = (".md", ".markdown")
 
 
-def default_output(book, pages=None, mode="bilingual", target=languages.DEFAULT_TARGET):
-    """Where the PDF goes when no output path is given: `<book>_bilingual.pdf`, or
-    `<book>_<target>.pdf` for a translation-only PDF."""
+def assets_path(state):
+    """The folder next to `state` that holds a book's pictures."""
+    return Path(state).with_suffix(".assets")
+
+
+def book_pages(book):
+    """The text of each page of a book. A Word or Markdown file has no pages: its units of
+    about a page stand in for them (blocks.units)."""
+    book = Path(book)
+    if book.suffix.lower() not in BLOCK_INPUTS:
+        return read_book(book)
+    with tempfile.TemporaryDirectory() as tmp:
+        return [blocks_mod.unit_text(u) for u in blocks_mod.units(read_blocks(book, tmp))]
+
+
+def reads_as_blocks(book, output_format="pdf"):
+    """True if the job goes through the blocks of the book: every Word or Markdown file, and
+    an EPUB or text file written as anything but PDF. (A PDF is translated page by page and
+    turned into blocks afterwards; EPUB or text to PDF is the plain-text path of old.)"""
+    ext = Path(book).suffix.lower()
+    return ext in BLOCK_INPUTS or (ext != ".pdf" and output_format != "pdf")
+
+
+def default_output(book, pages=None, mode="bilingual", target=languages.DEFAULT_TARGET, fmt="pdf"):
+    """Where the result goes when no output path is given: `<book>_bilingual.pdf`, or
+    `<book>_<target>.pdf` for a translation-only one (with the extension of the format)."""
     book = Path(book)
     suffix = " pages " + pages.replace(" ", "") if pages else ""
     tag = "bilingual" if mode == "bilingual" else target
-    return book.with_name(f"{book.stem}_{tag}{suffix}.pdf")
+    return book.with_name(f"{book.stem}_{tag}{suffix}.{fmt}")
 
 
 def glossary_path(state, target=languages.DEFAULT_TARGET):
@@ -55,6 +87,10 @@ def glossary_changes(book, out, *, pages=None, flat=False, target=languages.DEFA
     book, out = Path(book), Path(out)
     target = languages.check_target(target)
     state = Path(state) if state else out
+    if book.suffix.lower() != ".pdf":  # a book translated as blocks has its units in the cache
+        found = _unit_changes(book, state, pages, target, glossary_file)
+        if found["translated"] or book.suffix.lower() in BLOCK_INPUTS:
+            return found
     all_pages = read_book(book)
     idx = parse_range(pages, len(all_pages))
     texts = [all_pages[i] for i in idx]
@@ -74,6 +110,20 @@ def glossary_changes(book, out, *, pages=None, flat=False, target=languages.DEFA
     return {"pages": [idx[n] + 1 for n in stale], "translated": translated}
 
 
+def _unit_changes(book, state, pages, target, glossary_file):
+    """glossary_changes for a book translated as blocks; its "pages" are units."""
+    with tempfile.TemporaryDirectory() as tmp:
+        all_units = blocks_mod.units(read_blocks(book, tmp))
+    glossary = glossary_mod.load(glossary_path(state, target))
+    if glossary_file:
+        glossary.update(glossary_mod.parse_file(glossary_file))
+    cache, used = load_cache(state.with_suffix(".cache.json")), load_cache(used_path(state))
+    done = [u for u in parse_range(pages, len(all_units))
+            if unit_cached(cache, unit_key(u, target), all_units[u])]
+    stale = [u for u in done if is_stale(used, unit_key(u, target), glossary, blocks_mod.unit_text(all_units[u]))]
+    return {"pages": [u + 1 for u in stale], "translated": len(done)}
+
+
 def detect_book_language(book, sample=12):
     """The book's language code from pages spread over it, or None if it cannot be told
     (a scan has no text to read until it is OCR'd; the translating model then decides)."""
@@ -85,7 +135,7 @@ def detect_book_language(book, sample=12):
             step = max(n / sample, 1)
             pages = [doc[int(k * step)].get_text() for k in range(min(sample, n))]
     else:
-        pages = languages.sample_pages(read_book(book), sample)
+        pages = languages.sample_pages(book_pages(book), sample)
     return languages.detect_language(pages)
 
 
@@ -107,7 +157,7 @@ def total_pages(book):
     if book.suffix.lower() == ".pdf":
         from pypdf import PdfReader
         return len(PdfReader(str(book)).pages)
-    return len(read_book(book))
+    return len(book_pages(book))
 
 
 def count_pages(book, pages=None):
@@ -125,7 +175,7 @@ def draft_glossary(book, translator, glossary_path, *, pages=None, progress=None
     """
     book = Path(book)
     source, target = languages.check_source(source), languages.check_target(target)
-    all_pages = read_book(book)
+    all_pages = book_pages(book)
     idx = parse_range(pages, len(all_pages))
     if source == "auto":
         source = languages.detect_language(languages.sample_pages(all_pages)) or "auto"
@@ -144,7 +194,7 @@ def draft_glossary(book, translator, glossary_path, *, pages=None, progress=None
 
 def translate_book(book, out, translator, options=None, *, ocr_backend=None, progress=None,
                    meter=None, **settings):
-    """Translate `book` into the PDF `out`; returns `out`.
+    """Translate `book` (PDF, EPUB, Word, Markdown or text) into the file `out`; returns `out`.
 
     What to do is a `JobOptions` (options.py), or the same settings as keyword arguments:
     `translate_book(book, out, t, target="fr")` is `translate_book(book, out, t, JobOptions(target="fr"))`.
@@ -161,6 +211,10 @@ def translate_book(book, out, translator, options=None, *, ocr_backend=None, pro
     target        language code to translate into (see languages.LANGUAGES), default zh-CN
     output_mode   "bilingual": each original page then its translation (default);
                   "target-only": only the translation
+    output_format "pdf" (default), "epub", "docx" or "md". A PDF written as PDF keeps its page
+                  layout and an EPUB written as EPUB its own file; every other pair carries the
+                  text, pictures and tables over in their order. A Word or Markdown book, and an
+                  EPUB or text book written as anything but PDF, is read as blocks (blocks.py)
     refresh_glossary  translate again the cached pages whose glossary entries have changed since
                   they were translated (after editing the glossary); the other pages and the
                   automatic glossary are left alone, so only those pages are paid for
@@ -190,6 +244,10 @@ def translate_book(book, out, translator, options=None, *, ocr_backend=None, pro
     book, out = Path(book), Path(out)
     state = o.state or out
     overrides = glossary_mod.parse_file(glossary_file) if glossary_file else {}  # a bad file fails now, not after the OCR
+    if book.suffix.lower() not in INPUTS:
+        raise ValueError(f"Unsupported file type: {book.suffix.lower()} (use {', '.join(INPUTS)})")
+    if reads_as_blocks(book, o.output_format):
+        return _translate_blocks_book(book, out, translator, o, state, overrides, progress, meter)
     is_pdf = book.suffix.lower() == ".pdf"
     all_pages = read_book(book)
     idx = parse_range(pages, len(all_pages))
@@ -266,6 +324,15 @@ def translate_book(book, out, translator, options=None, *, ocr_backend=None, pro
                                  used=load_cache(used_path(state)), used_path=used_path(state),
                                  refresh=refresh_glossary)
 
+    if o.output_format != "pdf":  # a PDF written as another format: its text, pictures and tables in order
+        found = pdf_blocks(book, idx, texts, layout, lambda n: cache[cache_key(idx[n], target, True)],
+                           translations, assets_path(state))
+        if progress:
+            progress("render", 1, 1)
+        write_blocks(found, assets_path(state), out, o.output_format,
+                     bilingual=output_mode == "bilingual", lang=target, title=book.stem)
+        return out
+
     original = None
     if is_pdf:  # keep the original page layout; a page range needs a trimmed copy
         original = build_source_pdf(book, idx, out) if pages or only_cached else book
@@ -290,4 +357,60 @@ def translate_book(book, out, translator, options=None, *, ocr_backend=None, pro
     finally:
         if original and original != book:
             original.unlink(missing_ok=True)
+    return out
+
+
+def _translate_blocks_book(book, out, translator, o, state, overrides, progress, meter):
+    """translate_book for a book read as blocks (reads_as_blocks): the same settings, cache
+    files and glossary; a "page" of the page range is a unit of about a page."""
+    target, source = o.target, o.source
+    assets = assets_path(state)
+    found = read_blocks(book, assets)
+    all_units = blocks_mod.units(found)
+    idx = parse_range(o.pages, len(all_units))
+    if not idx:
+        raise ValueError("The book has no pages." if not all_units else
+                         f"The page range {o.pages!r} is outside the book, which has {len(all_units)} pages.")
+    cache_path = state.with_suffix(".cache.json")
+    cache = load_cache(cache_path)
+    auto_glossary = o.auto_glossary and not o.refresh_glossary
+    redo = set(parse_range(o.redo, len(all_units))) if o.redo else set()
+    if o.only_cached:
+        idx = [u for u in idx if unit_cached(cache, unit_key(u, target), all_units[u])]
+        if not idx:
+            raise ValueError("Nothing has been translated yet.")
+        translator, auto_glossary, redo = NoCalls(), False, set()
+    elif meter is not None:
+        translator = Metered(translator, meter)
+    book_texts = [blocks_mod.unit_text(u) for u in all_units]
+    texts = [book_texts[u] for u in idx]
+    if source == "auto":
+        source = languages.detect_language(languages.sample_pages(book_texts)) or "auto"
+
+    gloss_path = glossary_path(state, target)
+    glossary = glossary_mod.load(gloss_path)
+    if auto_glossary and (source == "auto" or source in languages.NAME_CAPITALS):
+        try:
+            glossary_mod.build(translator, book_texts, texts, glossary, progress, source, target)
+        except SpendLimitReached:  # keep the names already paid for
+            glossary_mod.save(gloss_path, glossary)
+            raise
+    glossary.update(overrides)
+    if glossary:
+        glossary_mod.save(gloss_path, glossary)
+
+    translate_units(translator, found, all_units, idx, cache, cache_path, redo, progress, glossary,
+                    source, target, used=load_cache(used_path(state)), used_path=used_path(state),
+                    refresh=o.refresh_glossary, marks=book.suffix.lower() in MARKDOWN)
+
+    whole = len(idx) == len(all_units)
+    if not whole:  # a unit's blocks run up to the next unit's first block
+        starts = [u[0][0] for u in all_units] + [len(found)]
+        keep = sorted({k for u in idx for k in range(0 if u == 0 else starts[u], max(starts[u + 1], starts[u] + 1))}
+                      | {k for u in idx for k, _, _ in all_units[u]})
+        found = [found[k] for k in keep]
+    if progress:
+        progress("render", 1, 1)
+    write_blocks(found, assets, out, o.output_format, bilingual=o.output_mode == "bilingual",
+                 lang=target, title=book.stem, source=book if whole else None)
     return out

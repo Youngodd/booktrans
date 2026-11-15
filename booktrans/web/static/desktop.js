@@ -337,6 +337,7 @@ function failureText(j) {  // what happened and what to do, in this page's langu
 function restoreForm(j) {  // put back what the book was submitted with, so Continue sends what the summary says
   $("source").value = j.source || "auto"; $("target").value = j.target || $("target").value;
   $("output-mode").value = j.output_mode || "bilingual";
+  $("output-format").value = j.output_format || "pdf";
   if (!j.preview) $("pages").value = j.range && j.range !== "1-" + j.pages_total ? j.range : "";
   if (j.spend_limit !== undefined) $("limit").value = String(j.spend_limit);
   if (j.provider === provider) {  // the saved key may belong to another provider by now

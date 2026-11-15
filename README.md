@@ -1,6 +1,7 @@
 # book-translator
 
-Translate books (PDF / EPUB / TXT) from any widely used language into another with AI.
+Translate books (PDF / EPUB / Word / Markdown / TXT) from any widely used language into another with AI,
+and write the result as PDF, EPUB, Word or Markdown.
 The book's language is detected automatically; you choose the target language and
 whether the PDF is bilingual (each original page followed by its translation) or
 holds the translation only.
@@ -46,6 +47,8 @@ lives in `booktrans/languages.py`.
 | `--source LANG` | language of the book; default `auto` = detected from the text (several pages, so a cover in another language does not mislead). If detection is unsure the model identifies the language itself |
 | `--target LANG` | language to translate into (default `zh-CN`) |
 | `--output-mode MODE` | `bilingual` (default): each original page then its translation; `target-only`: translated pages only (a page with nothing to translate, such as a picture, is kept as it is). The default file name is `<book>_bilingual.pdf` or `<book>_<target>.pdf` |
+| `--to FORMAT` | output format: `pdf`, `epub`, `docx` or `md` (default: from the `-o` file name, else `pdf`) |
+| `--recommend` | print the settings suggested for the book, with reasons, and stop (nothing is spent) |
 | `--model` | model name (default: the backend's default) |
 | `--pages 1-20` | only this page range (a single number or `start-end`) |
 | `--redo 9-10` | re-translate these pages even if cached |
@@ -61,6 +64,43 @@ Chinese keeps the plain keys of earlier versions), and the glossary is kept per 
 (`<output>.glossary.<lang>.json`), so switching the target never reuses the wrong text.
 With the default file names, running again with only `--output-mode` changed rebuilds
 the PDF from the cache and spends nothing.
+
+### Formats: any input to any output
+
+```
+python -m booktrans book.epub --to epub         # -> book_bilingual.epub, written into the original EPUB
+python -m booktrans report.docx --to md         # Word in, Markdown out
+python -m booktrans paper.pdf -o paper_zh.docx  # the format is taken from the file name
+python -m booktrans book.pdf --recommend        # suggested settings and why; nothing is spent
+```
+
+| Input | Output | What is kept |
+| --- | --- | --- |
+| PDF | PDF | the page layout, as described under "Page layout" below |
+| EPUB | EPUB | the book's own file: styles, pictures, fonts and contents page; each translated paragraph goes after its original (or replaces it with `--output-mode target-only`) |
+| any other pair | PDF, EPUB, Word (`.docx`), Markdown | the text, pictures and tables in their original order, set in the target format's own way |
+
+- A book that is not a PDF is read as **blocks** (`booktrans/blocks.py`): headings, paragraphs, list items,
+  tables (cell by cell), pictures and code, in reading order. Code is not translated. Pictures are saved in
+  `<output>.assets/`.
+- Blocks are translated in units of about a page and cached under `B<n>` keys in `<output>.cache.json`, each
+  with its **original text and its translation**. A unit whose text has changed is translated again; the others
+  are not. Writing the same book in another format makes no model call.
+- A PDF keeps its page-by-page cache (the `L<page>` keys), which serves every output format. Written as another
+  format, its text blocks become headings (by type size) and paragraphs, its embedded pictures and drawn figures
+  become pictures, and its ruled tables become tables.
+- Markdown output puts its pictures in `<name>_assets/` next to the file. The web service and the desktop app
+  give a `.zip` of both when there are pictures.
+- Limits: EPUB or TXT written as **PDF** still goes through the older plain-text pages (no pictures or tables)
+  and has its own cache entries, so that pair and the others do not share translations. Inline formatting
+  (bold, links) inside a paragraph is not carried into the translation, except Markdown marks, which stay in
+  the text. In a scanned PDF only the text is carried to other formats. Word text boxes, footnotes and comments
+  are not read; legacy `.doc` is not supported. A figure in a PDF is found by its drawing, so a chart can be
+  missed or cut wrongly; a table without ruling lines is written as paragraphs.
+
+`--recommend` (and the upload step of the web and desktop pages) looks at the file and suggests settings, each
+with a reason: the book's language, OCR for a scan, the output format, a first trial of 10 pages for a long
+book, and checking the names first. It uses no model and costs nothing (`booktrans/recommend.py`).
 
 ### Check the names early, then fix the pages already translated
 
@@ -201,9 +241,10 @@ variables: `BOOKTRANS_DATA` (data folder, default `data`), `BOOKTRANS_WORKERS`
 retention) are arguments of `create_app` in `booktrans/web/app.py`.
 
 API: `GET /api/config` (includes `languages`, the list for the pickers, and `default_target`) →
-`POST /api/jobs` (upload; the job carries `detected_language`, `""` if unsure) →
+`POST /api/jobs` (upload a `.pdf`, `.epub`, `.docx`, `.md` or `.txt`; the job carries `detected_language`,
+`""` if unsure, and `recommended`: `{settings, reasons}` suggested for this book) →
 `POST /api/jobs/{id}/start` (`api_key`, `pages`, `preview`, `ocr`, `source` (`auto` or a code),
-`target` (default `zh-CN`), `output_mode` (`bilingual` or `target-only`); an unknown code is a 400) → `GET /api/jobs/{id}` (state, stage, done/total) →
+`target` (default `zh-CN`), `output_mode` (`bilingual` or `target-only`), `output_format` (`pdf`, `epub`, `docx`, `md`); an unknown code is a 400) → `GET /api/jobs/{id}` (state, stage, done/total) →
 `GET /api/jobs/{id}/download`; `DELETE /api/jobs/{id}` removes the files.
 The glossary: `GET /api/jobs/{id}/glossary/download` (an editable `original=translation` text file),
 `POST .../glossary/import` (`{"text": ...}`; a line that cannot be read is a 400 that names it and nothing is
@@ -244,6 +285,11 @@ booktrans/
   cli.py          argument parsing and printing; calls pipeline.translate_book
   pipeline.py     the whole job as a function, with a progress callback
   readers.py      PDF / EPUB / TXT -> list of page texts, page ranges
+  blocks.py       a book as blocks (headings, paragraphs, tables, pictures) and its units
+  blockreaders.py EPUB / Word / Markdown / TXT -> blocks
+  blockwriters.py blocks -> EPUB / Word / Markdown / PDF
+  pdfblocks.py    a translated PDF -> blocks
+  recommend.py    settings suggested for an uploaded book
   ocr.py          OCR of scanned pages (via a vision backend)
   translate.py    translation, retry/fallback, on-disk cache
   languages.py    the language list, page labels and language detection

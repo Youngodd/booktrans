@@ -35,3 +35,27 @@ def test_read_txt(tmp_path):
 def test_unsupported_ext(tmp_path):
     with pytest.raises(ValueError):
         read_book(tmp_path / "a.docx")
+
+
+def test_a_page_this_program_redrew_is_read_and_translated_again(tmp_path):
+    """Text drawn with insert_htmlbox sits inside a form, which pypdf does not read. The page
+    passed for a scan with no text, so a translated PDF given back to be translated into
+    another language came out unchanged."""
+    import fitz
+    from booktrans.pipeline import translate_book
+    from booktrans.readers import read_book
+    from tests.conftest import FakeBackend
+    doc = fitz.open()
+    for n in range(2):
+        doc.new_page().insert_htmlbox(fitz.Rect(72, 80, 500, 300),
+                                      f"An English paragraph on page {n}, drawn the way this program draws a translated page.")
+    doc.save(tmp_path / "book_en.pdf")
+    pages = read_book(tmp_path / "book_en.pdf")
+    assert all("English paragraph" in p for p in pages)
+    backend = FakeBackend()
+    out = translate_book(tmp_path / "book_en.pdf", tmp_path / "o.pdf", backend,
+                         target="zh-CN", output_mode="target-only", auto_glossary=False)
+    assert len(backend.calls) == 2
+    with fitz.open(out) as d:
+        text = "".join(p.get_text() for p in d)
+    assert "译" in text and "English paragraph" not in text

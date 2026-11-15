@@ -28,6 +28,7 @@ LANGUAGES = {
 }
 DEFAULT_TARGET = "zh-CN"
 OUTPUT_MODES = ("bilingual", "target-only")
+OUTPUT_FORMATS = ("pdf", "epub", "docx", "md")
 
 # Languages whose capitalised mid-sentence words are names, so the automatic glossary of
 # repeated names makes sense (German capitalises every noun, the rest have no capitals).
@@ -53,6 +54,12 @@ def check_mode(mode):
     if mode not in OUTPUT_MODES:
         raise ValueError(f"Unsupported output mode {mode!r} (use {' or '.join(OUTPUT_MODES)})")
     return mode
+
+
+def check_format(fmt):
+    if fmt not in OUTPUT_FORMATS:
+        raise ValueError(f"Unsupported output format {fmt!r} (use {', '.join(OUTPUT_FORMATS)})")
+    return fmt
 
 
 def name(code):

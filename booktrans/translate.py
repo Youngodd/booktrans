@@ -74,8 +74,13 @@ def translate(backend, text, glossary=None, source="en", target=DEFAULT_TARGET):
     raise EmptyReply("The model returned an empty translation. Press Continue to try again.")
 
 
-def translate_blocks(backend, blocks, ctx=("", ""), glossary=None, source="en", target=DEFAULT_TARGET):
-    """Translate a page's blocks in one request; falls back to one by one."""
+def translate_blocks(backend, blocks, ctx=("", ""), glossary=None, source="en", target=DEFAULT_TARGET,
+                     marks=False):
+    """Translate a page's blocks in one request; falls back to one by one. Bold marks (**) a
+    model adds are removed, unless the text is Markdown (`marks`), where they are the book's."""
+    def tidy(s):
+        return (s if marks else s.replace("**", "")).strip()
+
     src = "\n".join("[%d] %s" % (n, b["text"]) for n, b in enumerate(blocks, 1))
     before, after = ctx
     if before:
@@ -88,11 +93,11 @@ def translate_blocks(backend, blocks, ctx=("", ""), glossary=None, source="en", 
         parts = re.split(r"(?m)^\[(\d+)\][ \t]*", out)  # ['', '1', 'txt', '2', ...]
         got = {int(parts[k]): parts[k + 1].strip() for k in range(1, len(parts) - 1, 2)}
         if sorted(got) == list(range(1, len(blocks) + 1)):
-            return [got[n].replace("**", "").strip() or KEEP for n in range(1, len(blocks) + 1)]
+            return [tidy(got[n]) or KEEP for n in range(1, len(blocks) + 1)]
     out = []
     for b in blocks:
         try:
-            out.append(translate(backend, b["text"], glossary, source, target).replace("**", "").strip() or KEEP)
+            out.append(tidy(translate(backend, b["text"], glossary, source, target)) or KEEP)
         except EmptyReply:
             out.append(KEEP)  # nothing came back: leave the original in place, do not erase it
     return out
@@ -141,3 +146,48 @@ def translate_all(backend, idx, pages, layout, ctx, cache, cache_path, redo=(), 
         if progress:
             progress("translate", n, len(pages))
     return translations
+
+
+def unit_key(u, target):
+    """Cache key of unit u of a book read as blocks (blocks.units)."""
+    return f"B{u}" if target == DEFAULT_TARGET else f"{target}:B{u}"
+
+
+def unit_cached(cache, key, unit):
+    """True if the cache holds the translation of exactly this unit's text."""
+    hit = cache.get(key)
+    src = [text for _, _, text in unit]
+    return isinstance(hit, dict) and hit.get("src") == src and len(hit.get("tr") or []) == len(src)
+
+
+def translate_units(backend, blocks, all_units, chosen, cache, cache_path, redo=(), progress=None,
+                    glossary=None, source="en", target=DEFAULT_TARGET, *, used=None, used_path=None,
+                    refresh=False, marks=False):
+    """Translate the units `chosen` (positions in `all_units`) of a book read as blocks and put
+    the translations into the blocks.
+
+    A unit is cached under "B<n>" as {"src": its texts, "tr": their translations}: the original
+    and the translation are kept together, and a unit whose text has changed is translated
+    again. The glossary bookkeeping (`used`, `refresh`) is that of translate_all.
+    """
+    from .blocks import apply, unit_text
+    for n, u in enumerate(chosen, 1):
+        unit = all_units[u]
+        key = unit_key(u, target)
+        text = unit_text(unit)
+        if not unit_cached(cache, key, unit) or u in redo or \
+                (refresh and is_stale(used or {}, key, glossary, text)):
+            print(f"Translating part {u + 1} ({n}/{len(chosen)})...", flush=True)
+            before = unit_text(all_units[u - 1])[-600:] if u > 0 else ""
+            after = unit_text(all_units[u + 1])[:400] if u + 1 < len(all_units) else ""
+            tr = translate_blocks(backend, [{"text": t} for _, _, t in unit], (before, after),
+                                  glossary, source, target, marks=marks)
+            cache[key] = {"src": [t for _, _, t in unit], "tr": tr}
+            save_cache(cache_path, cache)
+            if used is not None:
+                used[key] = glossary_used(glossary, text)
+                if used_path:
+                    save_cache(used_path, used)
+        apply(blocks, unit, cache[key]["tr"])
+        if progress:
+            progress("translate", n, len(chosen))
