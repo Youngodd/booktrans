@@ -260,7 +260,7 @@ def test_the_log_is_cut_when_it_grows_past_a_megabyte(monkeypatch):
     path = failure.log_path()
     path.write_text("x" * (failure.MAX_LOG_BYTES + 10))
     assert failure.write_log("fresh") == path
-    assert path.read_text().count("fresh") == 1 and path.stat().st_size < 1000
+    assert path.read_text(encoding="utf-8").count("fresh") == 1 and path.stat().st_size < 1000
 
 
 def test_a_log_that_cannot_be_written_does_not_make_things_worse(monkeypatch, tmp_path):

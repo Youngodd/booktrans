@@ -34,7 +34,7 @@ def run(book, out, backend=None, **kw):
 
 def md(tmp_path, text, name="book.md"):
     p = tmp_path / name
-    p.write_text(text, encoding="utf-8")
+    p.write_bytes(text.encode("utf-8"))  # exactly these characters, whatever the platform does to line ends
     return p
 
 
@@ -225,7 +225,7 @@ def test_a_long_book_is_cut_into_requests_of_a_page(tmp_path):
     book = md(tmp_path, paragraphs(300, words=40))
     sent = run(book, tmp_path / "o.md", output_format="md")
     assert len(sent.calls) > 5 and max(len(c) for c in sent.calls) < 6000
-    assert (tmp_path / "o.md").read_text().count("Paragraph ") == 300
+    assert (tmp_path / "o.md").read_text(encoding="utf-8").count("Paragraph ") == 300
 
 
 # ---------------------------------------------------------------- 2. markdown and Word structure
@@ -281,7 +281,7 @@ def test_a_word_file_with_only_a_table_is_translated_cell_by_cell(tmp_path):
         c.text = f"cell {i}"
     d.save(str(tmp_path / "t.docx"))
     run(tmp_path / "t.docx", tmp_path / "o.md", output_format="md")
-    out = (tmp_path / "o.md").read_text()
+    out = (tmp_path / "o.md").read_text(encoding="utf-8")
     assert all(f"cell {i}" in out for i in range(4)) and out.count("译") == 4
 
 
@@ -417,7 +417,7 @@ def test_a_range_running_past_the_end_is_clamped_and_one_part_is_enough(tmp_path
     assert len(run(book, tmp_path / "o.md", output_format="md", pages=f"1-{all_parts + 50}").calls) == all_parts
     one = run(book, tmp_path / "one.md", output_format="md", pages="2")
     assert len(one.calls) == 1
-    text = (tmp_path / "one.md").read_text()
+    text = (tmp_path / "one.md").read_text(encoding="utf-8")
     assert "译" in text and text.count("Paragraph ") < 12  # only that part, not the whole book
 
 
@@ -446,7 +446,7 @@ def test_a_part_that_keeps_failing_stops_the_book_and_the_next_run_pays_only_for
     second = FakeBackend()
     run(book, tmp_path / "o.md", second, output_format="md")
     assert 1 <= len(second.calls) < parts  # the parts done before the failure are not paid for again
-    assert (tmp_path / "o.md").read_text().count("译") >= 12
+    assert (tmp_path / "o.md").read_text(encoding="utf-8").count("译") >= 12
 
 
 def test_a_model_that_answers_keep_for_everything_leaves_the_book_as_it_was(tmp_path):
@@ -455,7 +455,7 @@ def test_a_model_that_answers_keep_for_everything_leaves_the_book_as_it_was(tmp_
     def keep(user):
         return "\n".join(f"[{n}] ~" for n in re.findall(r"(?m)^\[(\d+)\]", user))
     run(book, tmp_path / "o.md", FakeBackend(reply=keep), output_format="md", output_mode="bilingual")
-    text = (tmp_path / "o.md").read_text()
+    text = (tmp_path / "o.md").read_text(encoding="utf-8")
     assert text.count("Paragraph 0.") == 1 and "~" not in text  # the original once, no tilde, no duplicate
 
 
@@ -463,7 +463,7 @@ def test_a_model_that_answers_keep_for_everything_leaves_the_book_as_it_was(tmp_
 def test_a_model_that_answers_nothing_never_erases_the_book(tmp_path, no_sleep, reply):
     book = md(tmp_path, paragraphs(3, words=20))
     run(book, tmp_path / "o.md", FakeBackend(reply=reply), output_format="md", output_mode="target-only")
-    text = (tmp_path / "o.md").read_text()
+    text = (tmp_path / "o.md").read_text(encoding="utf-8")
     assert all(f"Paragraph {i}." in text for i in range(3))  # the originals stay where the translations were missing
 
 
@@ -471,7 +471,7 @@ def test_a_model_that_answers_nothing_never_erases_the_book(tmp_path, no_sleep, 
 def test_a_model_that_ignores_the_numbering_still_gives_a_book_with_every_passage(tmp_path, no_sleep, reply):
     book = md(tmp_path, paragraphs(3, words=20))
     run(book, tmp_path / "o.md", FakeBackend(reply=reply), output_format="md", output_mode="bilingual")
-    text = (tmp_path / "o.md").read_text()
+    text = (tmp_path / "o.md").read_text(encoding="utf-8")
     assert all(f"Paragraph {i}." in text for i in range(3))  # bilingual: the originals are there whatever it said
 
 
@@ -484,7 +484,7 @@ def test_a_damaged_cache_is_ignored_and_the_book_still_comes_out(tmp_path, body)
     book = md(tmp_path, paragraphs(3, words=20))
     (tmp_path / "o.cache.json").write_text(body)
     run(book, tmp_path / "o.md", output_format="md")
-    assert (tmp_path / "o.md").read_text().count("译") >= 3
+    assert (tmp_path / "o.md").read_text(encoding="utf-8").count("译") >= 3
 
 
 def test_a_damaged_glossary_or_spend_file_does_not_stop_a_book(tmp_path):
@@ -507,7 +507,7 @@ def test_switching_between_bilingual_and_target_only_pays_nothing(tmp_path):
     run(book, tmp_path / "o.md", output_format="md", output_mode="bilingual")
     again = run(book, tmp_path / "t.md", output_format="md", output_mode="target-only", state=tmp_path / "o.md")
     assert again.calls == []
-    text = (tmp_path / "t.md").read_text()
+    text = (tmp_path / "t.md").read_text(encoding="utf-8")
     assert "Paragraph 0." not in text and "译" in text
 
 
@@ -522,13 +522,13 @@ def test_finishing_without_spending_after_a_partial_run_writes_the_translated_pa
     run(book, tmp_path / "o.md", output_format="md", pages="1")
     backend = FakeBackend()
     translate_book(book, tmp_path / "done.md", backend, JobOptions(output_format="md", only_cached=True, state=tmp_path / "o.md"))
-    assert backend.calls == [] and (tmp_path / "done.md").read_text().count("译") >= 1
+    assert backend.calls == [] and (tmp_path / "done.md").read_text(encoding="utf-8").count("译") >= 1
 
 
 def test_the_same_language_as_source_and_target_still_runs(tmp_path):
     book = md(tmp_path, "# T\n\nSome text in English to translate.\n")
     run(book, tmp_path / "o.md", output_format="md", source="en", target="en")
-    assert "Some text in English" in (tmp_path / "o.md").read_text()
+    assert "Some text in English" in (tmp_path / "o.md").read_text(encoding="utf-8")
 
 
 def test_a_refresh_of_the_glossary_with_no_glossary_pays_for_nothing(tmp_path):
@@ -576,7 +576,7 @@ def test_a_wrapped_single_paragraph_with_no_blank_lines_stays_one_paragraph(tmp_
 
 def test_lines_that_each_end_a_sentence_are_separate_paragraphs(tmp_path):
     book = tmp_path / "lines.txt"
-    book.write_text("First thing happened.\nSecond thing happened!\nWas there a third?\n他回家了。\n")
+    book.write_text("First thing happened.\nSecond thing happened!\nWas there a third?\n他回家了。\n", encoding="utf-8")
     assert len(read_blocks(book, tmp_path / "assets")) == 4
 
 
@@ -609,7 +609,7 @@ def test_a_paragraph_that_looks_like_markdown_stays_a_paragraph(tmp_path, text):
     out = tmp_path / "o.md"
     write_blocks([{"type": "para", "text": text, "tr": "译:" + text}], tmp_path / "a", out, "md", bilingual=True, lang="zh-CN")
     back = read_blocks(out, tmp_path / "b")
-    assert [b["type"] for b in back] == ["para", "para"], (text, out.read_text())
+    assert [b["type"] for b in back] == ["para", "para"], (text, out.read_text(encoding="utf-8"))
 
 
 def test_ordinary_paragraphs_are_not_changed_by_the_escaping():
