@@ -19,7 +19,7 @@ from ..backends.base import AuthError, BackendError
 from ..pipeline import INPUTS, detect_book_language, glossary_changes, glossary_path, total_pages
 from ..recommend import recommend
 from .. import languages
-from ..readers import parse_range
+from ..readers import UnreadableBook, parse_range
 from .. import glossary as glossary_mod
 from . import auth, jobs, mailer, wxcloud
 from .. import spend
@@ -321,6 +321,9 @@ def create_app(data_dir=None, *, executor=None, backend_factory=jobs.default_bac
             raise HTTPException(413, f"The file is larger than {max_upload_mb} MB.")
         try:
             n = total_pages(path)
+        except UnreadableBook as e:  # its message says why (a password, a damaged or wrong kind of file)
+            store.delete(job_id)
+            raise HTTPException(400, str(e))
         except Exception:
             store.delete(job_id)
             raise HTTPException(400, "This file could not be read as a book.")
@@ -564,6 +567,9 @@ def create_app(data_dir=None, *, executor=None, backend_factory=jobs.default_bac
         cloud.delete(env, [req.file_id])  # the book now lives only in the job folder
         try:
             n = total_pages(path)
+        except UnreadableBook as e:  # its message says why (a password, a damaged or wrong kind of file)
+            store.delete(job_id)
+            raise HTTPException(400, str(e))
         except Exception:
             store.delete(job_id)
             raise HTTPException(400, "This file could not be read as a book.")

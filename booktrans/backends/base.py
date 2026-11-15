@@ -1,4 +1,5 @@
 """Interface every LLM provider implements, and the retried call everything above it uses."""
+import sys
 import time
 
 RETRY_DELAYS = (5, 20, 60)  # seconds to wait before each retry of a failed call
@@ -37,12 +38,29 @@ def complete(backend, system, text, max_tokens):
     An AuthError is never retried (a wrong key stays wrong), and neither is anything that is not
     a BackendError, such as the spend limit stopping a call.
     """
-    for delay in (*RETRY_DELAYS, None):
+    from .. import failure
+    attempts = len(RETRY_DELAYS) + 1
+    for n, delay in enumerate((*RETRY_DELAYS, None), 1):
         try:
             return backend.complete(system, text, max_tokens=max_tokens)
-        except AuthError:
-            raise
-        except BackendError:
+        except AuthError as e:
+            raise AuthError(_said(failure.where(), who(backend), "was refused", e)) from e
+        except BackendError as e:
+            why = failure.SHORT_CAUSE[failure.classify(e)]
             if delay is None:
-                raise
+                raise BackendError(_said(failure.where(), who(backend), f"failed after {attempts} attempts ({why})", e)) from e
+            task = failure.where()
+            print(f"{'While ' + task + ': a' if task else 'A'}ttempt {n}/{attempts} failed ({why}); retrying in {delay}s",
+                  file=sys.stderr, flush=True)
             time.sleep(delay)
+
+
+def who(backend):
+    """The backend and model, for messages: "qwen (qwen3.7-plus)"."""
+    name = getattr(backend, "provider", None) or type(backend).__name__
+    model = getattr(backend, "model", None)
+    return f"{name} ({model})" if model else str(name)
+
+
+def _said(task, backend_name, what, cause):
+    return f"{task[:1].upper() + task[1:] + ': ' if task else ''}{backend_name} {what}: {cause}"

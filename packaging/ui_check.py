@@ -74,22 +74,28 @@ def run(window, side):
         side.http.post("/api/jobs", files={"file": (book.name, book.read_bytes())})
         window.load_url(f"{side.base}/en?reload=1#token={side.token}")
         until(window, "document.getElementById('bookinfo').textContent.includes('化学之树.pdf')")
+        # every select is drawn by the page: WebKit's own is short and ignores the height in the style sheet
+        heights = json.loads(window.evaluate_js(
+            "JSON.stringify(Object.fromEntries(['source', 'target', 'output-format', 'output-mode', 'model']"
+            ".map(id => [id, document.getElementById(id).getBoundingClientRect().height])))"))
+        print("select heights:", heights)
+        assert all(h >= 44 for h in heights.values()), heights
         # the pickers: switch to Qwen (which reads scanned pages), choose a listed model and a typed OCR model
         window.evaluate_js("document.getElementById('btn-usingkey').click(); document.getElementById('keymsg').className = 'msg'; "
                            "document.getElementById('provider').value = 'qwen'; "
                            "document.getElementById('key').value='sk-qwen-ui-check-key-00000000'; document.getElementById('btn-savekey').click()")
         until(window, "document.getElementById('keymsg').classList.contains('done')")
-        assert window.evaluate_js("document.getElementById('model').value") == "qwen-plus", "provider default first"
+        assert window.evaluate_js("document.getElementById('model').value") == "qwen3.7-plus", "provider default first"
         assert window.evaluate_js("document.getElementById('ocr-model').disabled"), "OCR model is off until OCR is ticked"
         window.evaluate_js("""
           const pick = (id, v) => { const e = document.getElementById(id); e.value = v; e.dispatchEvent(new Event('change')); };
-          pick('model', 'qwen-max');
+          pick('model', 'qwen3.8-max');
           document.getElementById('ocr').click();
           pick('ocr-model', '__custom__');
           const c = document.getElementById('ocr-model-custom'); c.value = 'qwen-vl-ui-check'; c.dispatchEvent(new Event('input'));
         """)
         assert "Rate shown" in window.evaluate_js("document.getElementById('estimate').textContent"), "estimate marked approximate"
-        want, prefs = {"model": "qwen-max", "ocr_model": "qwen-vl-ui-check"}, None
+        want, prefs = {"model": "qwen3.8-max", "ocr_model": "qwen-vl-ui-check"}, None
         for _ in range(50):  # the page saves in the background; wait for the file
             try:
                 prefs = json.loads((work / "data" / "prefs.json").read_text(encoding="utf-8"))["models"]
@@ -101,7 +107,7 @@ def run(window, side):
         assert prefs and prefs["qwen"] == want, prefs
         window.load_url(f"{side.base}/en?reload=2#token={side.token}")  # restored on launch
         until(window, "document.getElementById('bookinfo').textContent.includes('化学之树.pdf')")
-        until(window, "document.getElementById('model').value === 'qwen-max' && document.getElementById('ocr-model-custom').value === 'qwen-vl-ui-check'")
+        until(window, "document.getElementById('model').value === 'qwen3.8-max' && document.getElementById('ocr-model-custom').value === 'qwen-vl-ui-check'")
         window.evaluate_js("document.getElementById('ocr').click()")
         # the review step: tick it, translate, accept the names
         window.evaluate_js("document.getElementById('limit').value = '1.5'")  # the fake backend costs ¥1 a call
@@ -118,7 +124,7 @@ def run(window, side):
         assert "translated pages only" in window.evaluate_js("document.getElementById('stage').textContent")
         # both choices were sent with the start request (the job keeps them; the key is never stored there)
         saved = [json.loads(p.read_text(encoding="utf-8")) for p in (work / "data" / "jobs").glob("*/job.json")]
-        assert any(j.get("model") == "qwen-max" and j.get("ocr_model") == "qwen-vl-ui-check" for j in saved), saved
+        assert any(j.get("model") == "qwen3.8-max" and j.get("ocr_model") == "qwen-vl-ui-check" for j in saved), saved
         # the key never reached the page
         assert "ui-check-key" not in window.evaluate_js("document.documentElement.outerHTML")
         result["ok"] = True

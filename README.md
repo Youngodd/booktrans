@@ -98,6 +98,14 @@ python -m booktrans book.pdf --recommend        # suggested settings and why; no
   are not read; legacy `.doc` is not supported. A figure in a PDF is found by its drawing, so a chart can be
   missed or cut wrongly; a table without ruling lines is written as paragraphs.
 
+- Files that cannot be read stop at once with a message that says why: a PDF that needs a password (one that only
+  restricts copying opens by itself; an AES-encrypted one needs the `cryptography` package), a damaged file, or a
+  file of another kind saved under the wrong extension. `--to` and the extension of `-o` must agree
+  (`-o book.docx --to md` is refused); a missing output folder is made, and one that cannot be written is
+  reported before any page is paid for.
+- A text file with no blank lines is read one paragraph per line (as most Chinese novels are), an indented line
+  starts a paragraph, and a paragraph longer than a page is cut into pages, so a request never holds a whole book.
+
 `--recommend` (and the upload step of the web and desktop pages) looks at the file and suggests settings, each
 with a reason: the book's language, OCR for a scan, the output format, a first trial of 10 pages for a long
 book, and checking the names first. It uses no model and costs nothing (`booktrans/recommend.py`).

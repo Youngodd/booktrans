@@ -43,7 +43,7 @@ def test_complete_sends_system_and_user_and_records_usage():
     b = backend()
     assert b.complete("SYS", "hello") == "你好"
     call = b.client.chat.completions.calls[0]
-    assert call["model"] == "qwen-plus"
+    assert call["model"] == "qwen3.7-plus"
     assert call["messages"] == [{"role": "system", "content": "SYS"},
                                 {"role": "user", "content": "hello"}]
     assert b.usage.tokens["input_tokens"] == 11 and b.usage.tokens["output_tokens"] == 5
@@ -53,7 +53,7 @@ def test_ocr_uses_the_vision_model_and_an_image():
     b = backend()
     b.ocr_image(b"\xff\xd8jpeg", "read it")
     call = b.client.chat.completions.calls[0]
-    assert call["model"] == "qwen-vl-max"
+    assert call["model"] == "qwen3.7-plus"
     parts = call["messages"][0]["content"]
     assert parts[0]["image_url"]["url"].startswith("data:image/jpeg;base64,")
     assert b.supports_vision
@@ -97,17 +97,20 @@ def test_a_refused_vision_call_names_the_model_and_the_providers_reason():
     with pytest.raises(AuthError) as e:
         backend(err).ocr_image(b"jpeg", "read")
     text = str(e.value)
-    assert "qwen-vl-max" in text and "Model access denied." in text and "k-123" not in text
+    assert "qwen3.7-plus" in text and "Model access denied." in text and "k-123" not in text
 
 
-def test_deepseek_is_called_with_thinking_off_and_the_others_are_not():
-    """DeepSeek thinks by default and pays for it out of max_tokens, so a page came back empty."""
+def test_deepseek_and_qwen_are_called_with_thinking_off_each_in_its_own_way():
+    """DeepSeek thinks by default and pays for it out of max_tokens, so a page came back empty.
+    The numbered Qwen models think by default too."""
     b = backend(provider="deepseek")
     b.complete("SYS", "hello")
     assert b.client.chat.completions.calls[0]["extra_body"] == {"thinking": {"type": "disabled"}}
-    b = backend()
-    b.complete("SYS", "hello")
-    assert b.client.chat.completions.calls[0]["extra_body"] is None
+    for provider in ("qwen", "qwen-intl"):
+        b = backend(provider=provider)
+        b.complete("SYS", "hello")
+        b.ocr_image(b"jpeg", "read")
+        assert [c["extra_body"] for c in b.client.chat.completions.calls] == [{"enable_thinking": False}] * 2
 
 
 def test_an_answer_cut_off_before_it_began_says_why():

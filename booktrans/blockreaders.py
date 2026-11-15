@@ -8,11 +8,26 @@ import re
 from pathlib import Path
 
 from .blocks import save_asset
-from .readers import decode_text
+from .readers import CHARS_PER_PAGE, UnreadableBook, _pieces, decode_text, html_text
 
 HEADINGS = {"h1": 1, "h2": 2, "h3": 3, "h4": 4, "h5": 5, "h6": 6}
 _SKIP = {"script", "style", "head", "nav", "noscript", "template"}
 _INLINE_BREAK = re.compile(r"\s+")
+
+
+def _cjk(ch):
+    return "\u2e80" <= ch <= "\u9fff" or "\uf900" <= ch <= "\ufaff" or "\uff00" <= ch <= "\uffef"
+
+
+def join_lines(lines):
+    """Lines of one paragraph as one string: a space between words, none next to Chinese,
+    Japanese or Korean text (which is not written with spaces)."""
+    out = ""
+    for line in lines:
+        line = line.strip()
+        if line:
+            out += (" " if out and not (_cjk(out[-1]) or _cjk(line[0])) else "") + line
+    return out
 
 
 def _clean(text):
@@ -38,13 +53,7 @@ def walk_html(root, image):
 
     def own_text(el):
         """Text of `el` without its nested lists and tables (they are blocks of their own)."""
-        parts = []
-        for ch in el.children:
-            if isinstance(ch, NavigableString):
-                parts.append(str(ch))
-            elif isinstance(ch, Tag) and ch.name not in ("ul", "ol", "table") and ch.name not in _SKIP:
-                parts.append(ch.get_text(" "))
-        return _clean(" ".join(parts))
+        return html_text(el, skip=("ul", "ol", "table"))
 
     def walk(el, depth):
         for ch in list(el.children):
@@ -57,7 +66,7 @@ def walk_html(root, image):
                 continue
             name = ch.name
             if name in HEADINGS:
-                text = _clean(ch.get_text(" "))
+                text = html_text(ch)
                 if text:
                     yield {"type": "heading", "text": text, "level": HEADINGS[name]}, ch
                 for im in ch.find_all(["img", "image"]):
@@ -65,7 +74,7 @@ def walk_html(root, image):
             elif name in ("p", "figcaption", "dt", "dd", "caption"):
                 for im in ch.find_all(["img", "image"]):
                     yield from figure(im)
-                text = _clean(ch.get_text(" "))
+                text = html_text(ch)
                 if text:
                     yield {"type": "para", "text": text}, ch
             elif name in ("img", "image"):
@@ -88,7 +97,7 @@ def walk_html(root, image):
                 cells = [[c for c in tr.find_all(["th", "td"])] for tr in ch.find_all("tr")]
                 cells = [row for row in cells if row]
                 if cells:
-                    yield {"type": "table", "rows": [[_clean(c.get_text(" ")) for c in row]
+                    yield {"type": "table", "rows": [[html_text(c) for c in row]
                                                      for row in cells]}, cells
             else:  # div, section, body, blockquote, figure, span, a ...: look inside
                 yield from walk(ch, depth)
@@ -180,7 +189,7 @@ def read_docx(path, assets):
                 for cell in row.cells:  # a merged cell is listed once per column it spans
                     if id(cell._tc) not in seen:
                         seen.add(id(cell._tc))
-                        cells.append(_clean(cell.text))
+                        cells.append(_clean(" ".join(Paragraph(p, doc).text for p in cell._tc.iter(qn("w:p")))))
                 rows.append(cells)
             if any(any(row) for row in rows):
                 blocks.append({"type": "table", "rows": rows})
@@ -189,7 +198,7 @@ def read_docx(path, assets):
 
 # ---------------------------------------------------------------- Markdown
 
-_MD_IMAGE = re.compile(r"!\[([^\]]*)\]\(\s*<?([^)\s>]+)>?(?:\s+\"[^\"]*\")?\s*\)")
+_MD_IMAGE = re.compile(r"!\[([^\]]*)\]\(\s*(?:<([^>]+)>|([^)\s>]+))(?:\s+\"[^\"]*\")?\s*\)")
 _MD_LIST = re.compile(r"^(\s*)([-*+]|\d+[.)])\s+(.*)$")
 _MD_RULE = re.compile(r"^\s*\|?\s*:?-{2,}:?\s*(\|\s*:?-{2,}:?\s*)*\|?\s*$")
 
@@ -201,6 +210,25 @@ def _md_row(line):
     return [c.strip().replace("\\|", "|") for c in re.split(r"(?<!\\)\|", line)]
 
 
+IMAGE_TYPES = {".png", ".jpg", ".jpeg", ".gif", ".svg", ".webp", ".bmp"}
+
+
+def _own_picture(folder, src):
+    """The picture file a Markdown mark points to, if it is an image inside the book's own
+    folder; None for a web address, a missing file, a file of another kind, or a path that
+    leaves the folder (an uploaded book must not pull in other files of the machine)."""
+    from urllib.parse import unquote
+    if re.match(r"(?i)^[a-z][a-z0-9+.-]*:", src) or src.startswith(("/", "\\")):
+        return None
+    try:
+        root = Path(folder).resolve()
+        file = (root / unquote(src.split("#")[0].split("?")[0])).resolve()
+        file.relative_to(root)
+    except (ValueError, OSError):
+        return None
+    return file if file.suffix.lower() in IMAGE_TYPES and file.is_file() else None
+
+
 def read_markdown(path, assets):
     """Markdown as blocks. Inline marks (**bold**, links) stay in the text as they are."""
     path = Path(path)
@@ -209,15 +237,15 @@ def read_markdown(path, assets):
 
     def flush():
         if para:
-            blocks.append({"type": "para", "text": " ".join(para)})
+            blocks.append({"type": "para", "text": join_lines(para)})
             para.clear()
 
     def images(line):
         """Take the pictures out of a line; returns what is left of it."""
         def one(m):
-            alt, src = m.group(1), m.group(2)
-            file = (path.parent / src) if not re.match(r"(?i)^[a-z][a-z0-9+.-]*:", src) else None
-            if file is not None and file.is_file():
+            alt, src = m.group(1), m.group(2) or m.group(3)
+            file = _own_picture(path.parent, src)
+            if file is not None:
                 flush()
                 blocks.append({"type": "figure", "alt": alt,
                                "image": save_asset(assets, file.read_bytes(), file.suffix)})
@@ -275,9 +303,43 @@ def read_markdown(path, assets):
     return blocks
 
 
+SENTENCE_END = ".!?…。！？”’」』\"')）】》"
+
+
 def read_text(path, assets=None):
+    """Plain text as paragraphs. Blank lines separate them; a file with none (one paragraph per
+    line, as most Chinese novels are) is read line by line, and an indented line starts a new
+    paragraph. Lines hard-wrapped inside a paragraph are joined."""
     text = decode_text(Path(path).read_bytes())
-    return [{"type": "para", "text": " ".join(p.split())} for p in re.split(r"\n\s*\n", text) if p.strip()]
+    chunks = [c for c in re.split(r"\n\s*\n", text) if c.strip()]
+    if len(chunks) == 1:
+        lines = [c for c in chunks[0].splitlines() if c.strip()]
+        ended = sum(1 for l in lines if l.rstrip()[-1] in SENTENCE_END)
+        if len(lines) > 1 and ended >= 0.6 * len(lines):  # most lines end a sentence: one paragraph per line
+            chunks = lines                                  # (lines that stop mid-sentence are one wrapped paragraph)
+    out = []
+    for chunk in chunks:
+        lines = [[]]
+        for line in chunk.splitlines():
+            if line.strip():
+                if lines[-1] and re.match(r"^(\u3000|\t| {2,})", line):  # an indented line begins a paragraph
+                    lines.append([])
+                lines[-1].append(line)
+        out += [{"type": "para", "text": " ".join(join_lines(l).split())} for l in lines if l]
+    return out
+
+
+def split_long(blocks):
+    """A paragraph longer than a page is cut (at line ends, then sentence ends) into paragraphs
+    of a page: it would otherwise go to the model in one request, and its translation would be
+    cut off at the model's answer limit."""
+    out = []
+    for b in blocks:
+        if b["type"] == "para" and len(b["text"]) > CHARS_PER_PAGE:
+            out += [{"type": "para", "text": piece} for piece in _pieces(b["text"], CHARS_PER_PAGE)]
+        else:
+            out.append(b)
+    return out
 
 
 READERS = {".epub": read_epub, ".docx": read_docx, ".md": read_markdown, ".markdown": read_markdown,
@@ -289,4 +351,12 @@ def read_blocks(path, assets):
     ext = Path(path).suffix.lower()
     if ext not in READERS:
         raise ValueError(f"Unsupported file type: {ext}")
-    return READERS[ext](path, assets)
+    try:
+        found = READERS[ext](path, assets)
+        # not an EPUB: its blocks must stay one per element, so the translation can be written back into the book itself
+        return found if ext == ".epub" else split_long(found)
+    except (UnreadableBook, OSError):
+        raise
+    except Exception as e:  # a damaged file, or one of another kind saved under this extension
+        raise UnreadableBook(f"This file could not be read as a {ext} file ({type(e).__name__}: {str(e)[:120]}); "
+                             "it may be damaged or of another kind.") from e

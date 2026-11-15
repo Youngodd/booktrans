@@ -37,7 +37,11 @@ class Usage:
         path = out.with_suffix(".usage.json")
         try:
             runs = json.loads(path.read_text(encoding="utf-8"))
-        except (OSError, ValueError):  # no log yet, or a damaged one: start a new list
+        except FileNotFoundError:  # no log yet
+            runs = []
+        except (OSError, ValueError) as e:  # a damaged one: start a new list
+            from . import failure
+            failure.warn(f"{path.name} could not be read ({type(e).__name__}); its earlier runs are dropped.")
             runs = []
         if not isinstance(runs, list):
             runs = []

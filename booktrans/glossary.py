@@ -8,6 +8,7 @@ page request then carries the entries that occur on that page.
 import re
 from collections import defaultdict
 
+from . import failure
 from .backends.base import AuthError, BackendError, complete
 from .fsutil import read_json, write_json
 from .prompts import GLOSSARY_NOTE, glossary_prompt
@@ -170,10 +171,13 @@ def build(backend, all_texts, needed_texts, glossary, progress=None, source="en"
         chunk = todo[start:start + CHUNK]
         src = "\n".join(f"[{n}] {t} | {ex}" for n, (t, ex) in enumerate(chunk, 1))
         try:
-            out = complete(backend, glossary_prompt(source, target), src, 4096)
+            with failure.working_on(stage="glossary"):
+                out = complete(backend, glossary_prompt(source, target), src, 4096)
         except AuthError:
             raise
-        except BackendError:
+        except BackendError as e:
+            failure.warn(f"the names could not be collected ({e}); translating without the rest of them, "
+                         "so a name may be written two ways. Run again to try the glossary once more.")
             break  # the glossary is a help, not a requirement: translate without the rest
         parts = re.split(r"(?m)^\[(\d+)\][ \t]*", out)
         got = {int(parts[k]): parts[k + 1].strip() for k in range(1, len(parts) - 1, 2)}

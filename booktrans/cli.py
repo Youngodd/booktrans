@@ -6,8 +6,7 @@ import sys
 from pathlib import Path
 
 from .backends import BACKENDS, make_backend
-from .backends.base import BackendError
-from . import languages
+from . import failure, languages
 from . import glossary as glossary_mod
 from .options import JobOptions
 from .pipeline import (MIN_TEXT_CHARS, book_pages, default_output, draft_glossary, glossary_changes,
@@ -63,7 +62,7 @@ def parse_args():
     ap.add_argument("--output-mode", choices=languages.OUTPUT_MODES, default="bilingual",
                     help="bilingual: each original page then its translation (default); "
                          "target-only: only the translated pages")
-    ap.add_argument("--to", choices=languages.OUTPUT_FORMATS, default=None, metavar="FORMAT",
+    ap.add_argument("--to", type=str.lower, choices=languages.OUTPUT_FORMATS, default=None, metavar="FORMAT",
                     help="output format: pdf, epub, docx or md (default: from the -o file name, else pdf). "
                          "A PDF written as PDF keeps its page layout, and an EPUB written as EPUB its "
                          "styles; any other pair carries the text, pictures and tables over in order")
@@ -101,6 +100,9 @@ def parse_args():
                     help="stop and ask before spending more than this many yuan on the book "
                          "in total, across runs (default %(default)s; 0 = no limit). Prices "
                          "are estimates; see booktrans/spend.py")
+    ap.add_argument("--debug", action="store_true",
+                    help="when something goes wrong, also print the full technical details (they are always "
+                         "written to the log file, %s)" % failure.log_path())
     ap.add_argument("--finish-partial", action="store_true",
                     help="spend nothing: write the PDF from the pages already translated")
     return ap.parse_args()
@@ -123,9 +125,19 @@ def main():
         args.source = languages.check_source(args.source)
         args.target = languages.check_target(args.target)
         run(args)
-    except (ValueError, BackendError) as e:
-        sys.exit(f"{e}\nProgress is saved; run the same command again to resume."
-                 if isinstance(e, BackendError) else str(e))
+    except KeyboardInterrupt:
+        print("\nInterrupted. Progress is saved; run the same command again to resume.", file=sys.stderr)
+        sys.exit(130)
+    except ValueError as e:  # a book or an option that cannot be used: the message says which
+        failure.log_failure(e, command(args))
+        sys.exit(str(e) + ("\n\n" + failure.format_exception(e) if args.debug else ""))
+    except Exception as e:  # a failed model call, or something nobody expected: never a bare traceback
+        sys.exit(failure.report(e, command=command(args), debug=args.debug, book=args.book.name))
+
+
+def command(args):
+    """The command line of this run, for the log (the keys are in the environment, not in it)."""
+    return "booktrans " + " ".join(sys.argv[1:])
 
 
 def decide(e, last, out):
@@ -241,6 +253,14 @@ def run(args):
     if args.recommend:
         print_recommended(args.book)
         return
+    ext = args.output.suffix.lower().lstrip(".") if args.output else ""
+    named = {"markdown": "md"}.get(ext, ext)  # the format the output file name says
+    if args.to and named in languages.OUTPUT_FORMATS and named != args.to:
+        sys.exit(f"--to {args.to} and the output file name {args.output.name} disagree: "
+                 "change the extension or drop one of them.")
+    fmt = args.to or named or "pdf"
+    if fmt not in languages.OUTPUT_FORMATS:
+        sys.exit(f"Cannot write {fmt!r}: the output is one of {', '.join(languages.OUTPUT_FORMATS)} (see --to).")
     usage = Usage()
     is_pdf = args.book.suffix.lower() == ".pdf"
 
@@ -263,9 +283,6 @@ def run(args):
         print(f"Warning: {len(scanned)} of {len(idx)} pages have no text layer "
               "(scanned?). Re-run with --ocr to read them.", file=sys.stderr)
 
-    fmt = args.to or (args.output.suffix.lower().lstrip(".") if args.output else "pdf")
-    if fmt not in languages.OUTPUT_FORMATS:
-        sys.exit(f"Cannot write {fmt!r}: the output is one of {', '.join(languages.OUTPUT_FORMATS)} (see --to).")
     args.to = fmt
     out = args.output or default_output(args.book, args.pages, args.output_mode, args.target, fmt)
     # cache, OCR text and glossary sit next to the bilingual name whatever the mode, so

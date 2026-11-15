@@ -21,10 +21,12 @@ class AnthropicBackend(LLMBackend):
             msg = self.client.messages.create(model=self.model, max_tokens=max_tokens,
                                               messages=messages, **kw)
         except (anthropic.AuthenticationError, anthropic.PermissionDeniedError) as e:
-            raise AuthError("The API key was rejected. Check that it is correct, "
-                            "has credit and may use this model.") from e
+            why = (getattr(e, "message", "") or "")[:300]  # the provider's own reason (it never contains the key)
+            raise AuthError(f"The provider refused the call to model \"{self.model}\" ({why or 'no reason given'}). "
+                            "Check that the key is correct, the account has credit, and this model is "
+                            "activated for it.") from e
         except anthropic.APIError as e:
-            raise BackendError(f"Anthropic API error: {e}") from e
+            raise BackendError(f"Anthropic API error (model {self.model}): {e}") from e
         self.usage.record(msg.usage)
         return "".join(b.text for b in msg.content if b.type == "text").strip()
 

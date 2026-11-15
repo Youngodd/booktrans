@@ -143,6 +143,8 @@ def load_prefs():
         raw = json.loads(_prefs_path().read_text(encoding="utf-8"))["models"]
     except (OSError, ValueError, KeyError, TypeError):
         return {}
+    if not isinstance(raw, dict):  # {"models": null} or a list: damaged, nothing chosen
+        return {}
     return {p: {k: v for k, v in c.items() if k in ("model", "ocr_model") and isinstance(v, str)
                 and (v == "" or MODEL_ID.match(v))}
             for p, c in raw.items() if isinstance(p, str) and isinstance(c, dict)}

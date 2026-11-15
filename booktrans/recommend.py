@@ -57,7 +57,9 @@ def recommend(book, total=0, language=""):
     if ext == ".pdf":
         try:
             facts = _pdf_facts(book)
-        except Exception:
+        except Exception as e:  # a suggestion is a convenience: fewer suggestions, not an error
+            from . import failure
+            failure.note(f"the pages of {Path(book).name} could not be looked at for the recommendation", e)
             facts = None
         if facts and facts["sampled"]:
             if facts["no_text"] / facts["sampled"] >= SCAN_SHARE:

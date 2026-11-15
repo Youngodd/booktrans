@@ -3,16 +3,17 @@
 Used by the command line (cli.py) and callable from other programs, such as a web
 service. Nothing here prints or exits; progress goes to an optional callback.
 """
+import os
 import tempfile
 from pathlib import Path
 
 from . import blocks as blocks_mod
 from . import glossary as glossary_mod
-from . import languages
+from . import failure, languages
 from .layout import book_ratios, collect_layout, measure_layout_page, render_layout_page
 from .ocr import ocr_scanned_pages
 from .options import JobOptions
-from .readers import parse_range, read_book
+from .readers import open_pdf, parse_range, read_book
 from .spend import Metered, NoCalls, SpendLimitReached
 from .blockreaders import read_blocks
 from .blockwriters import write_blocks
@@ -141,8 +142,8 @@ def detect_book_language(book, sample=12):
 
 def build_source_pdf(book, idx, out):
     """A PDF of just the selected pages (for a page range), or None for the whole book."""
-    from pypdf import PdfReader, PdfWriter
-    r, w = PdfReader(str(book)), PdfWriter()
+    from pypdf import PdfWriter
+    r, w = open_pdf(book), PdfWriter()
     for i in idx:
         w.add_page(r.pages[i])
     path = out.with_suffix(".src.pdf")
@@ -155,8 +156,7 @@ def total_pages(book):
     """Pages in the book (quick for PDFs, which don't need their text read)."""
     book = Path(book)
     if book.suffix.lower() == ".pdf":
-        from pypdf import PdfReader
-        return len(PdfReader(str(book)).pages)
+        return len(open_pdf(book).pages)
     return len(book_pages(book))
 
 
@@ -243,13 +243,21 @@ def translate_book(book, out, translator, options=None, *, ocr_backend=None, pro
     auto_glossary = o.auto_glossary and not refresh_glossary  # only the pages that changed are paid for
     book, out = Path(book), Path(out)
     state = o.state or out
+    for folder in {out.parent, Path(state).parent}:  # -o some/new/folder/book.pdf; found out now, not after the first page is paid for
+        try:
+            folder.mkdir(parents=True, exist_ok=True)
+        except OSError as e:
+            raise ValueError(f"Cannot write to the folder {folder}: {e.strerror or e}") from e
+        if not os.access(folder, os.W_OK):
+            raise ValueError(f"Cannot write to the folder {folder}: it is read-only.")
     overrides = glossary_mod.parse_file(glossary_file) if glossary_file else {}  # a bad file fails now, not after the OCR
     if book.suffix.lower() not in INPUTS:
         raise ValueError(f"Unsupported file type: {book.suffix.lower()} (use {', '.join(INPUTS)})")
     if reads_as_blocks(book, o.output_format):
         return _translate_blocks_book(book, out, translator, o, state, overrides, progress, meter)
     is_pdf = book.suffix.lower() == ".pdf"
-    all_pages = read_book(book)
+    with failure.working_on(stage="read"):
+        all_pages = read_book(book)
     idx = parse_range(pages, len(all_pages))
     if not idx:
         raise ValueError("The book has no pages." if not all_pages else
@@ -329,8 +337,9 @@ def translate_book(book, out, translator, options=None, *, ocr_backend=None, pro
                            translations, assets_path(state))
         if progress:
             progress("render", 1, 1)
-        write_blocks(found, assets_path(state), out, o.output_format,
-                     bilingual=output_mode == "bilingual", lang=target, title=book.stem)
+        with failure.working_on(stage="render"):
+            write_blocks(found, assets_path(state), out, o.output_format,
+                         bilingual=output_mode == "bilingual", lang=target, title=book.stem)
         return out
 
     original = None
@@ -352,8 +361,9 @@ def translate_book(book, out, translator, options=None, *, ocr_backend=None, pro
         if progress:
             progress("render", len(layout) + k, 2 * len(layout))
     try:
-        make_pdf(texts, translations, out, original, zh_pages,
-                 source=source, target=target, mode=output_mode)
+        with failure.working_on(stage="render"):
+            make_pdf(texts, translations, out, original, zh_pages,
+                     source=source, target=target, mode=output_mode)
     finally:
         if original and original != book:
             original.unlink(missing_ok=True)
@@ -365,7 +375,8 @@ def _translate_blocks_book(book, out, translator, o, state, overrides, progress,
     files and glossary; a "page" of the page range is a unit of about a page."""
     target, source = o.target, o.source
     assets = assets_path(state)
-    found = read_blocks(book, assets)
+    with failure.working_on(stage="read"):
+        found = read_blocks(book, assets)
     all_units = blocks_mod.units(found)
     idx = parse_range(o.pages, len(all_units))
     if not idx:
@@ -411,6 +422,7 @@ def _translate_blocks_book(book, out, translator, o, state, overrides, progress,
         found = [found[k] for k in keep]
     if progress:
         progress("render", 1, 1)
-    write_blocks(found, assets, out, o.output_format, bilingual=o.output_mode == "bilingual",
-                 lang=target, title=book.stem, source=book if whole else None)
+    with failure.working_on(stage="render"):
+        write_blocks(found, assets, out, o.output_format, bilingual=o.output_mode == "bilingual",
+                     lang=target, title=book.stem, source=book if whole else None)
     return out

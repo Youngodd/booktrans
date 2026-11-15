@@ -62,3 +62,10 @@ class PricedBackend(FakeBackend):
 def fake_prices(monkeypatch):
     from booktrans import spend
     monkeypatch.setitem(spend.PRICES, "fake", {"text": (500.0, 500.0), "vision": (500.0, 500.0)})
+
+
+@pytest.fixture(autouse=True)
+def error_log_in_tmp(tmp_path_factory, monkeypatch):
+    """Failures and warnings are written to a log file: keep it out of the real home folder (and out of
+    the test's own folder, which some tests list)."""
+    monkeypatch.setenv("BOOKTRANS_LOG", str(tmp_path_factory.mktemp("log") / "error.log"))

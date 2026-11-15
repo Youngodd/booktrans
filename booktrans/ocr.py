@@ -1,4 +1,5 @@
 """OCR for scanned PDF pages, using a vision-capable backend."""
+from . import failure
 from .prompts import OCR_PROMPT
 from .fsutil import read_json, write_json
 
@@ -20,7 +21,8 @@ def ocr_scanned_pages(backend, book, idx, pages, scanned, cache_path, progress=N
         key = str(idx[n])
         if key not in cache:
             print(f"OCR page {idx[n] + 1} ({k}/{len(scanned)})...", flush=True)
-            cache[key] = ocr_page(backend, book, idx[n])
+            with failure.working_on(stage="ocr", page=idx[n] + 1):
+                cache[key] = ocr_page(backend, book, idx[n])
             write_json(cache_path, cache)
         pages[n] = cache[key]
         if progress:

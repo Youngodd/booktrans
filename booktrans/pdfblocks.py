@@ -3,12 +3,41 @@
 The text comes from the page layout and its cached translation; pictures, drawn figures and
 tables are found on each page and put between the text where they stand.
 """
+from . import failure
 from .blocks import save_asset
 from .layout import _median, has_page_image
 
 FIGURE_DPI = 150
 MIN_FIGURE = 60       # points: smaller pictures are ornaments, rules or bullets
 MAX_LABEL_SHARE = 0.25  # a drawn area with more text than this is a panel of prose, not a figure
+
+
+def reading_order(blocks):
+    """The positions of a page's text blocks in reading order, by cutting the page where nothing
+    crosses: first into bands from top to bottom, and a band with no gap between its blocks into
+    columns from left to right (the XY cut). A PDF's own order is the order its text was drawn
+    in, which is not always the order it is read in (a title drawn last, two columns)."""
+    def cut(ids, lo, hi):
+        spans = sorted((blocks[k]["bbox"][lo], blocks[k]["bbox"][hi], k) for k in ids)
+        groups, end = [], None
+        for start, stop, k in spans:
+            if groups and start >= end - 0.5:  # nothing crosses this line: a new band
+                groups.append([])
+                end = None
+            elif not groups:
+                groups.append([])
+            groups[-1].append(k)
+            end = stop if end is None else max(end, stop)
+        return groups
+
+    def order(ids):
+        if len(ids) > 1:
+            for lo, hi in ((1, 3), (0, 2)):  # bands first, then columns
+                groups = cut(ids, lo, hi)
+                if len(groups) > 1:
+                    return [k for g in groups for k in order(g)]
+        return sorted(ids, key=lambda k: (blocks[k]["bbox"][1], blocks[k]["bbox"][0]))
+    return order(list(range(len(blocks))))
 
 
 def _inside(bbox, rect):
@@ -25,7 +54,8 @@ def _tables(page, blocks, zh):
     out = []
     try:
         found = page.find_tables().tables
-    except Exception:  # table finding is a best effort; the text is still written as paragraphs
+    except Exception as e:  # table finding is a best effort; the text is still written as paragraphs
+        failure.note(f"tables of page {page.number + 1} could not be found; its text is written as paragraphs", e)
         return out
     for t in found:
         rows, tr_rows, used = [], [], set()
@@ -60,11 +90,13 @@ def _figures(doc, page, blocks, tables, assets):
             if pix.n - pix.alpha >= 4:  # CMYK
                 pix = fitz.Pixmap(fitz.csRGB, pix)
             out.append((box, {"type": "figure", "alt": "", "image": save_asset(assets, pix.tobytes("png"), "png")}, set()))
-        except Exception:
+        except Exception as e:
+            failure.warn(f"a picture on page {page.number + 1} could not be read ({type(e).__name__}) and is left out of the output.")
             continue
     try:
         clusters = page.cluster_drawings()
-    except Exception:
+    except Exception as e:
+        failure.note(f"drawn figures of page {page.number + 1} could not be found", e)
         clusters = []
     for rect in clusters:
         box = tuple(rect)
@@ -106,16 +138,17 @@ def pdf_blocks(book, idx, texts, layout, zh_of, translations, assets):
             tables = _tables(page, blocks, zh)
             figures = [] if has_page_image(page) else _figures(doc, page, blocks, tables, assets)
             gone = set().union(*[used for _, _, used, _ in tables], *[labels for *_, labels in figures])
-            items = [(k, b) for k, b, _, _ in tables]
+            rank = {k: r for r, k in enumerate(reading_order(blocks))}
+            items = [(rank[k], b) for k, b, _, _ in tables]
             for k, b in enumerate(blocks):
                 if k in gone:
                     continue
                 big = body and b["size"] >= 1.2 * body and b["lines"] <= 3
                 item = {"type": "heading", "level": 1 if b["size"] >= 1.6 * body else 2} if big else {"type": "para"}
                 item.update(text=b["text"], tr=zh[k])
-                items.append((k, item))
+                items.append((rank[k], item))
             for box, fig, _ in figures:  # before the first text that starts below it
-                after = [k for k, b in enumerate(blocks) if k not in gone and b["bbox"][1] >= box[1] - 2]
+                after = [rank[k] for k, b in enumerate(blocks) if k not in gone and b["bbox"][1] >= box[1] - 2]
                 items.append(((min(after) if after else len(blocks)) - 0.5, fig))
             out += [b for _, b in sorted(items, key=lambda it: it[0])]
     return out

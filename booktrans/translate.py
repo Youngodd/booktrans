@@ -5,6 +5,7 @@ from .backends.base import BackendError, complete
 from . import glossary as gloss
 from .languages import DEFAULT_TARGET
 from .layout import KEEP
+from . import failure
 from .fsutil import read_json, write_json
 from .prompts import layout_prompt, system_prompt
 
@@ -130,7 +131,8 @@ def translate_all(backend, idx, pages, layout, ctx, cache, cache_path, redo=(), 
             if key not in cache or i in redo or len(cache[key]) != len(blocks) or \
                     (refresh and is_stale(used or {}, key, glossary, source_text(text, blocks))):
                 print(f"Translating page {i + 1} ({n}/{len(pages)})...", flush=True)
-                cache[key] = translate_blocks(backend, blocks, ctx[n - 1], glossary, source, target)
+                with failure.working_on(stage="translate", page=i + 1):
+                    cache[key] = translate_blocks(backend, blocks, ctx[n - 1], glossary, source, target)
                 save_cache(cache_path, cache)
                 remember(key, source_text(text, blocks))
             translations.append("")
@@ -139,7 +141,8 @@ def translate_all(backend, idx, pages, layout, ctx, cache, cache_path, redo=(), 
             continue
         if key not in cache or i in redo or (refresh and is_stale(used or {}, key, glossary, text)):
             print(f"Translating page {i + 1} ({n}/{len(pages)})...", flush=True)
-            cache[key] = translate(backend, text, glossary, source, target)
+            with failure.working_on(stage="translate", page=i + 1):
+                cache[key] = translate(backend, text, glossary, source, target)
             save_cache(cache_path, cache)
             remember(key, text)
         translations.append(cache[key])
@@ -180,8 +183,9 @@ def translate_units(backend, blocks, all_units, chosen, cache, cache_path, redo=
             print(f"Translating part {u + 1} ({n}/{len(chosen)})...", flush=True)
             before = unit_text(all_units[u - 1])[-600:] if u > 0 else ""
             after = unit_text(all_units[u + 1])[:400] if u + 1 < len(all_units) else ""
-            tr = translate_blocks(backend, [{"text": t} for _, _, t in unit], (before, after),
-                                  glossary, source, target, marks=marks)
+            with failure.working_on(stage="translate", page=u + 1, unit="part"):
+                tr = translate_blocks(backend, [{"text": t} for _, _, t in unit], (before, after),
+                                      glossary, source, target, marks=marks)
             cache[key] = {"src": [t for _, _, t in unit], "tr": tr}
             save_cache(cache_path, cache)
             if used is not None:

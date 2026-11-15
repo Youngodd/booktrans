@@ -547,7 +547,7 @@ def test_an_unknown_model_is_priced_at_the_provider_rate_and_marked_approximate(
     assert spend.price_approx("qwen", "", "qwen-vl-plus", ocr=True) is True
     meter = spend.Meter(0)
     tokens = {"input_tokens": 1000, "output_tokens": 1000}
-    assert meter.cost("qwen", "text", tokens) == (1000 * 0.8 + 1000 * 2.0) / 1e6  # the provider's rate, whatever the model
+    assert meter.cost("qwen", "text", tokens) == (1000 * 2.0 + 1000 * 8.0) / 1e6  # the provider's rate, whatever the model
 
 
 def test_hosted_requests_without_model_fields_still_work(tmp_path, text_pdf):

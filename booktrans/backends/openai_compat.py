@@ -11,16 +11,24 @@ from .base import AuthError, BackendError, LLMBackend
 # key_env    environment variable holding the API key (used when none is passed in)
 # model      default text model;  vision: default model for reading scanned pages (or None)
 # models / vision_models   the short lists the desktop pickers offer, default first (one line to add a model)
+# Qwen ids carry a version number. Read from the Model Studio model lists (help.aliyun.com/zh/model-studio/
+# text-generation-model and its alibabacloud.com/help/en twin, the same on both) on 2026-11-15: the recommended
+# models are qwen3.7-plus (balanced), qwen3.8-max and qwen3.8-flash; the unnumbered qwen-plus / qwen-max are
+# listed as older models and the qwen-vl-* ids are gone: Plus and Max read images themselves.
+QWEN_MODELS = ["qwen3.7-plus", "qwen3.8-max", "qwen3.8-flash"]
+QWEN_VISION = ["qwen3.7-plus", "qwen3.8-max"]
+# These models think by default, paid as output and not needed for translation (see DeepSeek below).
+QWEN_EXTRA = {"enable_thinking": False}
 PROVIDERS = {
     "qwen": {  # Alibaba Cloud Model Studio, mainland China account
         "base_url": "https://dashscope.aliyuncs.com/compatible-mode/v1",
-        "key_env": "DASHSCOPE_API_KEY", "model": "qwen-plus", "vision": "qwen-vl-max",
-        "models": ["qwen-plus", "qwen-max", "qwen-turbo"], "vision_models": ["qwen-vl-max", "qwen-vl-plus"],
+        "key_env": "DASHSCOPE_API_KEY", "model": "qwen3.7-plus", "vision": "qwen3.7-plus",
+        "models": QWEN_MODELS, "vision_models": QWEN_VISION, "extra_body": QWEN_EXTRA,
         "label": "Qwen (Alibaba Cloud, China)"},
     "qwen-intl": {  # the same service for international accounts (Singapore)
         "base_url": "https://dashscope-intl.aliyuncs.com/compatible-mode/v1",
-        "key_env": "DASHSCOPE_API_KEY", "model": "qwen-plus", "vision": "qwen-vl-max",
-        "models": ["qwen-plus", "qwen-max", "qwen-turbo"], "vision_models": ["qwen-vl-max", "qwen-vl-plus"],
+        "key_env": "DASHSCOPE_API_KEY", "model": "qwen3.7-plus", "vision": "qwen3.7-plus",
+        "models": QWEN_MODELS, "vision_models": QWEN_VISION, "extra_body": QWEN_EXTRA,
         "label": "Qwen (Alibaba Cloud, international)"},
     "deepseek": {
         "base_url": "https://api.deepseek.com",
@@ -70,7 +78,7 @@ class OpenAICompatBackend(LLMBackend):
                             "Check that the key is correct, the account has credit, and this model is "
                             "activated for it (scanned pages use the vision model).") from e
         except openai.OpenAIError as e:
-            raise BackendError(f"API error: {e}") from e
+            raise BackendError(f"API error from {self.provider} (model {model}): {e}") from e
         u = resp.usage
         self.usage.record({"input_tokens": getattr(u, "prompt_tokens", 0),
                            "output_tokens": getattr(u, "completion_tokens", 0)})

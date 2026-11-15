@@ -12,10 +12,11 @@ import re
 import secrets
 import shutil
 import sys
+import threading
 import time
 from pathlib import Path
 
-from ..backends.base import AuthError, BackendError
+from .. import failure
 
 ID_RE = re.compile(r"^[A-Za-z0-9_-]{22}$")
 SAFE_NAME = re.compile(r"[^A-Za-z0-9._ -]")
@@ -66,16 +67,19 @@ class JobStore:
         if (path / "job.json").exists():
             job = json.loads((path / "job.json").read_text(encoding="utf-8"))
         job.update(fields)
-        tmp = path / "job.json.tmp"
+        tmp = path / f"job.json.{os.getpid()}.{threading.get_ident()}.tmp"  # one name per writer: two at once must not share it
         tmp.write_text(json.dumps(job), encoding="utf-8")
-        for attempt in range(50):  # Windows refuses to replace a file a reader has open
-            try:
-                os.replace(tmp, path / "job.json")
-                break
-            except PermissionError:
-                if attempt == 49:
-                    raise
-                time.sleep(0.02)
+        try:
+            for attempt in range(50):  # Windows refuses to replace a file a reader has open
+                try:
+                    os.replace(tmp, path / "job.json")
+                    break
+                except PermissionError:
+                    if attempt == 49:
+                        raise
+                    time.sleep(0.02)
+        finally:
+            tmp.unlink(missing_ok=True)
 
     def delete(self, job_id):
         path = self.dir(job_id)
@@ -137,61 +141,12 @@ def preview_range(pages, total):
 def _log_failure(e, api_key):
     """Write the full traceback of a failure to stderr (the desktop app's log file), with the API
     key blanked out. The job shows a classified message and a short detail, never the traceback."""
-    import traceback
-    text = "".join(traceback.format_exception(type(e), e, e.__traceback__))
-    sys.stderr.write("Job failed:\n" + (text.replace(api_key, "***") if api_key else text) + "\n")
+    sys.stderr.write("Job failed:\n" + failure.format_exception(e, (api_key,)) + "\n")
     sys.stderr.flush()
 
 
-# What the user can do about each kind of failure (the pages show a translated version, keyed by code).
-FAILURE_ADVICE = {
-    "auth": "The provider refused the request. Check the key, that the account has credit, and that it may use this model.",
-    "quota": "The account is out of credit or over its quota. Top it up, then press Continue.",
-    "rate_limit": "The provider is limiting requests. Wait a minute, then press Continue.",
-    "timeout": "The provider took too long to answer. Press Continue to retry.",
-    "network": "Could not reach the provider. Check your internet connection, then press Continue.",
-    "server": "The provider had a problem on its side. Try Continue again in a few minutes.",
-    "provider": "The provider returned an error. Press Continue to retry; if it repeats, the detail below says why.",
-    "disk": "The app could not write its files (disk full or no permission). Free some space, then press Continue.",
-    "memory": "The computer ran out of memory on this book. Close other apps, or translate a smaller page range.",
-    "input": "This book or one of the settings could not be used.",
-    "unknown": "An unexpected error stopped the translation. Press Continue to retry; the log has the full details.",
-}
-
-
-def _classify(e):
-    """A failure code (a key of FAILURE_ADVICE) from the exception and what caused it."""
-    import errno
-    chain = []
-    x = e
-    while x is not None and len(chain) < 6:
-        chain.append(x)
-        x = x.__cause__ or x.__context__
-    names = " ".join(type(c).__name__ for c in chain)
-    status = next((getattr(c, "status_code", None) for c in chain if isinstance(getattr(c, "status_code", None), int)), 0)
-    said = str(e).lower()
-    if isinstance(e, AuthError):
-        return "auth"
-    if any(w in said for w in ("credit balance", "insufficient", "arrearage", "quota", "billing")):
-        return "quota"
-    if status == 429 or "RateLimit" in names:
-        return "rate_limit"
-    if "Timeout" in names or "timed out" in said:
-        return "timeout"
-    if status >= 500 or "InternalServer" in names or "Overloaded" in names:
-        return "server"
-    if "Connect" in names or "gaierror" in names or "ProxyError" in names or "SSL" in names:
-        return "network"
-    if any(isinstance(c, MemoryError) for c in chain):
-        return "memory"
-    if any(isinstance(c, OSError) and c.errno in (errno.ENOSPC, errno.EACCES, errno.EPERM, errno.EROFS, errno.EDQUOT)
-           for c in chain):
-        return "disk"
-    if isinstance(e, BackendError):
-        return "provider"
-    if isinstance(e, ValueError):
-        return "input"
-    return "unknown"
+FAILURE_ADVICE = failure.FAILURE_ADVICE  # what to do about each kind of failure (shared with the command line)
+_classify = failure.classify
 
 
 def failure_info(e, api_key):
@@ -201,15 +156,7 @@ def failure_info(e, api_key):
     if isinstance(e, Exception):
         _log_failure(e, api_key)
     code = _classify(e)
-    if isinstance(e, (BackendError, ValueError)):
-        detail = str(e)
-    elif isinstance(e, OSError) and e.strerror:
-        detail = e.strerror
-    else:
-        detail = type(e).__name__
-    if api_key:
-        detail = detail.replace(api_key, "***")
-    detail = detail[:400]
+    detail = failure.detail_of(e, (api_key,), verbose=False)
     return code, detail, f"{FAILURE_ADVICE[code]} ({detail})"
 
 

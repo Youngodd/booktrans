@@ -24,8 +24,11 @@ USD_CNY = 7.2             # estimate
 # (input, output) yuan per million tokens. "text" is the translating model, "vision" the OCR model.
 PRICES = {
     "api": {"text": (3 * USD_CNY, 15 * USD_CNY), "vision": (3 * USD_CNY, 15 * USD_CNY)},  # Sonnet-class list price, UNVERIFIED for the current model
-    "qwen": {"text": (0.8, 2.0), "vision": (3.0, 9.0)},                                    # UNVERIFIED
-    "qwen-intl": {"text": (0.4 * USD_CNY, 1.2 * USD_CNY), "vision": (0.8 * USD_CNY, 3.2 * USD_CNY)},  # UNVERIFIED
+    # qwen3.7-plus (it also reads the scanned pages), list price for requests up to 256K tokens, read from
+    # help.aliyun.com/zh/model-studio/model-pricing (Beijing: 2 / 8 yuan) and alibabacloud.com/help/en/model-studio/
+    # model-pricing (Singapore: $0.4 / $1.6) on 2026-11-15; a time-limited 20% discount is not counted
+    "qwen": {"text": (2.0, 8.0), "vision": (2.0, 8.0)},
+    "qwen-intl": {"text": (0.4 * USD_CNY, 1.6 * USD_CNY), "vision": (0.4 * USD_CNY, 1.6 * USD_CNY)},
     # deepseek-flash, peak-hour cache-miss list price $0.30 in / $1.20 out per 1M tokens, read from
     # api-docs.deepseek.com on 2026-10-31 and converted at USD_CNY (off-peak is half; cache hits far less)
     "deepseek": {"text": (0.3 * USD_CNY, 1.2 * USD_CNY), "vision": (0.3 * USD_CNY, 1.2 * USD_CNY)},
@@ -78,7 +81,10 @@ class Meter:
         if self.path and self.path.exists():
             try:
                 spent = float(json.loads(self.path.read_text(encoding="utf-8"))["spent_cny"])
-            except (OSError, ValueError, KeyError, TypeError):  # damaged file: start counting again
+            except (OSError, ValueError, KeyError, TypeError) as e:  # damaged file: start counting again
+                from . import failure
+                failure.warn(f"{self.path.name} could not be read ({type(e).__name__}); the spend counted "
+                             "so far for this book is lost and counting starts again from zero.")
                 spent = 0.0
             if math.isfinite(spent) and spent > 0:
                 self.spent = spent

@@ -6,6 +6,7 @@ translation is written. An EPUB that came from an EPUB is written back into the 
 file (write_epub_inplace), so its styles, pictures and contents page stay as they were.
 """
 import io
+import re
 import posixpath
 import shutil
 import uuid
@@ -302,7 +303,10 @@ def write_docx(blocks, assets, out, *, bilingual=True, lang="zh-CN", title="Book
                     shape.height = int(shape.height * width / shape.width)
                     shape.width = width
                 doc.paragraphs[-1].alignment = WD_ALIGN_PARAGRAPH.CENTER
-            except Exception:  # a picture format Word cannot hold (SVG, WebP): say so, go on
+            except Exception as e:  # a picture format Word cannot hold (SVG, WebP): say so, go on
+                from . import failure
+                failure.warn(f"the picture {b['image']} could not be put in the Word file ({type(e).__name__}); "
+                             "its place is marked with its name.")
                 doc.add_paragraph("[%s]" % (b.get("alt") or b["image"]))
         elif kind == "break":
             doc.add_page_break()
@@ -315,6 +319,18 @@ def assets_dir_of(out):
     """Where a Markdown file's pictures go: `<name>_assets/` next to it."""
     out = Path(out)
     return out.with_name(out.stem + "_assets")
+
+
+def md_paragraph(text):
+    """A paragraph's text with anything that would turn a line into a heading, list, quote, code fence
+    or rule escaped, so "1984. was a novel" stays a sentence and not a list item."""
+    def line(s):
+        m = re.match(r"^\s{0,3}\d{1,9}([.)])(?:\s|$)", s)
+        if m:
+            return s[:m.start(1)] + "\\" + s[m.start(1):]
+        m = re.match(r"^\s{0,3}(#{1,6}(?=\s|$)|>|[-+*](?=\s|$)|[`~]{3}|[-=_*]{3,}\s*$)", s)
+        return s[:m.start(1)] + "\\" + s[m.start(1):] if m else s
+    return "\n".join(line(s) for s in clean_text(text).split("\n"))
 
 
 def write_markdown(blocks, assets, out, *, bilingual=True, lang="zh-CN", title="Book"):
@@ -333,7 +349,7 @@ def write_markdown(blocks, assets, out, *, bilingual=True, lang="zh-CN", title="
                 lines += ["#" * min(max(b.get("level", 2), 1), 6) + " " + clean_text(t).replace("\n", " "), ""]
         elif kind == "para":
             for t, _ in pairs(b, bilingual):
-                lines += [clean_text(t), ""]
+                lines += [md_paragraph(t), ""]
         elif kind == "list":
             mark = "1." if b.get("ordered") else "-"
             pad = "  " * b.get("level", 0)
@@ -412,4 +428,5 @@ def write_blocks(blocks, assets, out, fmt, *, bilingual=True, lang="zh-CN", titl
             return write_epub_inplace(source, blocks, assets, out, bilingual=bilingual)
         except NotTheSameBook:
             pass
+    blocks = [b for b in blocks if b["type"] != "figure" or (Path(assets) / b["image"]).is_file()]
     WRITERS[fmt](blocks, assets, out, bilingual=bilingual, lang=lang, title=title)

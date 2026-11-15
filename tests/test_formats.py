@@ -151,7 +151,8 @@ def test_a_second_format_is_built_from_the_cache_without_a_call(md_book, tmp_pat
 def test_changed_text_is_translated_again_and_the_rest_is_not(md_book, tmp_path):
     opts = JobOptions(output_format="md", auto_glossary=False)
     translate_book(md_book, tmp_path / "o.md", FakeBackend(), opts)
-    md_book.write_text(md_book.read_text(encoding="utf-8") + "\n" + "A new closing paragraph. " * 120 + "\n",
+    # under a page long: a longer paragraph is cut into pieces of a page, and each piece is a unit
+    md_book.write_text(md_book.read_text(encoding="utf-8") + "\n" + "A new closing paragraph. " * 70 + "\n",
                        encoding="utf-8")
     assert total_pages(md_book) == 2
     again = FakeBackend()
