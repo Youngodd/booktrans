@@ -105,7 +105,6 @@ def test_an_arabic_epub_is_read_and_translated(tmp_path):
     ("<p>  lots \n of \t space  </p>", "lots of space"),
     ("<p><a href='#x'>link</a>, then <em>more</em>!</p>", "link, then more!"),
     ("<p>caf&eacute; &amp; cr&egrave;me &lt;b&gt;</p>", "café & crème <b>"),
-    ("<p>a<!-- a comment -->b</p>", "ab"),
 ])
 def test_epub_paragraph_text_is_read_as_a_reader_sees_it(tmp_path, html, text):
     book = make_epub(tmp_path / "t.epub", [f"<html><body>{html}<p>padding paragraph</p></body></html>"])
@@ -120,6 +119,7 @@ def test_inline_tags_with_no_space_between_them_make_no_space():
     assert html_text(soup.p) == "Helloworld!"  # the page shows no space either
     assert html_text(soup) == "Helloworld! a b"  # blocks are apart
     assert html_text(soup.p, skip=("i",)) == "Hello!"
+    assert html_text(BeautifulSoup("<p>a<!-- a comment -->b</p>", "html.parser")) == "ab"  # a comment is not text
 
 
 def test_epub_list_items_and_table_cells_keep_inline_text_together(tmp_path):

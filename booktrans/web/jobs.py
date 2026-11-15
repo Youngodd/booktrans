@@ -23,6 +23,9 @@ SAFE_NAME = re.compile(r"[^A-Za-z0-9._ -]")
 PREVIEW_PAGES = 3
 
 
+_WRITE_LOCK = threading.Lock()  # one writer of any job.json at a time, in this process
+
+
 class JobStore:
     def __init__(self, root, keep_names=False):
         self.root = Path(root)
@@ -61,25 +64,34 @@ class JobStore:
         return None
 
     def write(self, job_id, **fields):
-        """Merge fields into job.json (atomically, so readers never see half a file)."""
+        """Merge fields into job.json (atomically, so readers never see half a file). Writers in this
+        process take turns, so none of them loses another's fields."""
         path = self.root / job_id
-        job = {}
-        if (path / "job.json").exists():
-            job = json.loads((path / "job.json").read_text(encoding="utf-8"))
-        job.update(fields)
-        tmp = path / f"job.json.{os.getpid()}.{threading.get_ident()}.tmp"  # one name per writer: two at once must not share it
-        tmp.write_text(json.dumps(job), encoding="utf-8")
-        try:
-            for attempt in range(50):  # Windows refuses to replace a file a reader has open
-                try:
-                    os.replace(tmp, path / "job.json")
-                    break
-                except PermissionError:
-                    if attempt == 49:
-                        raise
-                    time.sleep(0.02)
-        finally:
-            tmp.unlink(missing_ok=True)
+        with _WRITE_LOCK:
+            job = {}
+            if (path / "job.json").exists():
+                for attempt in range(50):  # Windows refuses to open the file for an instant while a reader or writer has it
+                    try:
+                        job = json.loads((path / "job.json").read_text(encoding="utf-8"))
+                        break
+                    except PermissionError:
+                        if attempt == 49:
+                            raise
+                        time.sleep(0.02)
+            job.update(fields)
+            tmp = path / f"job.json.{os.getpid()}.{threading.get_ident()}.tmp"  # one name per writer
+            tmp.write_text(json.dumps(job), encoding="utf-8")
+            try:
+                for attempt in range(50):
+                    try:
+                        os.replace(tmp, path / "job.json")
+                        break
+                    except PermissionError:
+                        if attempt == 49:
+                            raise
+                        time.sleep(0.02)
+            finally:
+                tmp.unlink(missing_ok=True)
 
     def delete(self, job_id):
         path = self.dir(job_id)
