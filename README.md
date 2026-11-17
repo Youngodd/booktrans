@@ -6,7 +6,31 @@ The book's language is detected automatically; you choose the target language an
 whether the PDF is bilingual (each original page followed by its translation) or
 holds the translation only.
 
-## Setup
+## Download
+
+**Windows desktop app** — no Python or command line needed.
+
+| | |
+| --- | --- |
+| Download | [BookTranslator-Setup-0.1.33.exe](https://github.com/Youngodd/booktrans/releases/download/v0.1.33/BookTranslator-Setup-0.1.33.exe) |
+| Version | 0.1.33 (built 2026-11-15) |
+| Size | 82 MB |
+| SHA-256 | `9799539a1d70d479faca1e779b52c26294bc5c118ad159be1f7aa4929f71b19a` |
+| Needs | Windows 10 or 11 (64-bit), an internet connection, and an API key from Anthropic, Qwen (Alibaba Cloud) or DeepSeek |
+
+All versions are on the [Releases page](https://github.com/Youngodd/booktrans/releases). There is no Mac build yet; on a Mac, use the
+command line below.
+
+1. Run the downloaded file. It installs for your user only and needs no administrator rights.
+2. Windows may show "Windows protected your PC" because the app is not code-signed (a certificate costs money).
+   Click **More info**, then **Run anyway**. To check the file first, compare its SHA-256 with the one above
+   (PowerShell: `Get-FileHash .\BookTranslator-Setup-0.1.33.exe`).
+3. Open **Book Translator**, choose your provider, and paste your API key once. The key is kept in Windows Credential Manager. Your
+   book goes only to the provider you chose; the app has no server of its own and collects nothing.
+
+Your half-translated books are kept when you uninstall, so a reinstall does not lose them.
+
+## Setup (command line)
 
 ```
 python3 -m venv .venv && source .venv/bin/activate
@@ -52,6 +76,11 @@ lives in `booktrans/languages.py`.
 | `--model` | model name (default: the backend's default) |
 | `--pages 1-20` | only this page range (a single number or `start-end`) |
 | `--redo 9-10` | re-translate these pages even if cached |
+| `--glossary FILE` | fixed renderings of names and terms, one `original=translation` per line (they override the automatic glossary) |
+| `--no-auto-glossary` | do not build the automatic glossary of repeated names |
+| `--max-spend YUAN` | stop and ask before spending more than this on the book in total, across runs (default 10; `0` = no limit; prices are estimates) |
+| `--finish-partial` | spend nothing: write the output from the pages already translated |
+| `--debug` | when something goes wrong, also print the technical details (they are always written to the log file) |
 | `--flat` | PDF input: plain-text translated pages instead of the original layout |
 | `--ocr` | OCR scanned pages (needs a vision-capable backend) |
 | `--ocr-backend`, `--ocr-model` | use a different backend / model for OCR |
@@ -267,6 +296,16 @@ run the web service on any Linux server. See [docs/DEPLOY.md](docs/DEPLOY.md) fo
 step-by-step guide for Alibaba Cloud / Tencent Cloud (international sites, Singapore or
 Tokyo region).
 
+## Desktop app (building it)
+
+The desktop app is the same engine behind a local window: `booktrans.desktop` opens a pywebview window and
+starts the web service on `127.0.0.1` with a per-launch token; the API key is kept in the operating system's
+credential store. The Windows installer is built by `.github/workflows/desktop-windows.yml` (tests, PyInstaller
+build, smoke test, Inno Setup installer). That workflow keeps its installer as an Actions artifact for **14 days
+only**, so downloads are published as GitHub Releases instead (see the Download section). To publish one:
+download the installer from the workflow run, then `gh release create vX.Y.Z BookTranslator-Setup-X.Y.Z.exe`
+and update the link, size and SHA-256 above.
+
 ## Switching API supplier
 
 Any supplier that speaks the OpenAI chat protocol is one entry in `PROVIDERS`
@@ -307,8 +346,15 @@ booktrans/
   writer.py       assemble the PDF (bilingual or translation only); typeset text pages
   web/            web service: app.py (API), jobs.py (job storage, worker), static/index.html
   usage.py        token usage tracking
+  spend.py        spend limit per book (counts every paid call, stops before going over)
+  glossary.py     names glossary: collect, edit, apply to translated pages
+  options.py      JobOptions: one validated definition of a job's settings
+  failure.py      classified failure messages, log file, redacted keys (CLI, web and desktop)
+  fsutil.py       small file helpers shared by the cache, glossary, OCR and spend files
+  desktop/        desktop app shell (pywebview window; starts the web service on 127.0.0.1)
   prompts.py      prompts sent to the model
-  backends/       LLMBackend interface + claude-cli and api providers
+  backends/       LLMBackend interface + claude-cli, Anthropic api and OpenAI-compatible (Qwen, DeepSeek) providers
+packaging/       Windows build: installer script (Inno Setup) and the installer's checks
 tests/            pytest suite (uses a fake backend, no API calls)
 ```
 
